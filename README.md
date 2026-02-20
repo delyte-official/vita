@@ -1,2 +1,2 @@
-# vita
+# Vita
 The programming language of Vita: Spes. Adapta. Supera.
