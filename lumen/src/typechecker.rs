@@ -31,5 +31,13 @@ pub fn check(program: BoundProgram) -> Result<TypedProgram, String> {
 fn infer(expr: &Expr) -> Type {
     match expr {
         Expr::Int(_) => Type::I32,
+        Expr::Binary { left, right, .. } => {
+            let left_type = infer(left);
+            let right_type = infer(right);
+            if !matches!((left_type, right_type), (Type::I32, Type::I32)) {
+                panic!("binary operation operands must be of type i32");
+            }
+            Type::I32
+        }
     }
 }

@@ -5,9 +5,17 @@ use inkwell::context::Context;
 use inkwell::targets::{
     CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
 };
+use inkwell::values::IntValue;
 use inkwell::OptimizationLevel;
 
-use crate::middle_end::Instr;
+use crate::middle_end::{Instr, Value};
+
+fn resolve<'ctx>(v: Value, temps: &[IntValue<'ctx>], i32_type: inkwell::types::IntType<'ctx>) -> IntValue<'ctx> {
+    match v {
+        Value::Const(n) => i32_type.const_int(n as u64, true),
+        Value::Temp(i) => temps[i],
+    }
+}
 
 pub fn compile_to_executable(instructions: &[Instr], output_path: &Path) -> Result<(), String> {
     let context = Context::create();
@@ -20,10 +28,36 @@ pub fn compile_to_executable(instructions: &[Instr], output_path: &Path) -> Resu
     let entry_block = context.append_basic_block(function, "entry");
     builder.position_at_end(entry_block);
 
+    let mut temps: Vec<IntValue> = vec![];
+
     for instr in instructions {
         match instr {
-            Instr::Return(n) => {
-                let value = i32_type.const_int(*n as u64, true);
+            Instr::Add(_, l, r) => {
+                let result = builder
+                    .build_int_add(resolve(*l, &temps, i32_type), resolve(*r, &temps, i32_type), "addtmp")
+                    .map_err(|e| format!("codegen error: {e}"))?;
+                temps.push(result);
+            }
+            Instr::Sub(_, l, r) => {
+                let result = builder
+                    .build_int_sub(resolve(*l, &temps, i32_type), resolve(*r, &temps, i32_type), "subtmp")
+                    .map_err(|e| format!("codegen error: {e}"))?;
+                temps.push(result);
+            }
+            Instr::Mul(_, l, r) => {
+                let result = builder
+                    .build_int_mul(resolve(*l, &temps, i32_type), resolve(*r, &temps, i32_type), "multmp")
+                    .map_err(|e| format!("codegen error: {e}"))?;
+                temps.push(result);
+            }
+            Instr::Div(_, l, r) => {
+                let result = builder
+                    .build_int_signed_div(resolve(*l, &temps, i32_type), resolve(*r, &temps, i32_type), "divtmp")
+                    .map_err(|e| format!("codegen error: {e}"))?;
+                temps.push(result);
+            }
+            Instr::Return(v) => {
+                let value = resolve(*v, &temps, i32_type);
                 builder
                     .build_return(Some(&value))
                     .map_err(|e| format!("codegen error: {e}"))?;

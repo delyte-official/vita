@@ -9,6 +9,10 @@ pub enum TokenKind {
     LBrace,
     RBrace,
     Semicolon,
+    Plus,
+    Minus,
+    Star,
+    Slash,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -53,21 +57,13 @@ impl<'a> Lexer<'a> {
                 Some(c) if c.is_whitespace() => {
                     self.bump();
                 }
-                Some('{') => {
-                    let (line, col) = (self.line, self.col);
-                    self.bump();
-                    return Ok(Some(Token { kind: TokenKind::LBrace, line, col }));
-                }
-                Some('}') => {
-                    let (line, col) = (self.line, self.col);
-                    self.bump();
-                    return Ok(Some(Token { kind: TokenKind::RBrace, line, col }));
-                }
-                Some(';') => {
-                    let (line, col) = (self.line, self.col);
-                    self.bump();
-                    return Ok(Some(Token { kind: TokenKind::Semicolon, line, col }));
-                }
+                Some('{') => return Ok(Some(self.single_char_token(TokenKind::LBrace))),
+                Some('}') => return Ok(Some(self.single_char_token(TokenKind::RBrace))),
+                Some(';') => return Ok(Some(self.single_char_token(TokenKind::Semicolon))),
+                Some('+') => return Ok(Some(self.single_char_token(TokenKind::Plus))),
+                Some('-') => return Ok(Some(self.single_char_token(TokenKind::Minus))),
+                Some('*') => return Ok(Some(self.single_char_token(TokenKind::Star))),
+                Some('/') => return Ok(Some(self.single_char_token(TokenKind::Slash))),
                 Some(c) if c.is_ascii_digit() => {
                     let (line, col) = (self.line, self.col);
                     let mut text = String::new();
@@ -108,5 +104,11 @@ impl<'a> Lexer<'a> {
                 }
             }
         }
+    }
+
+    fn single_char_token(&mut self, kind: TokenKind) -> Token {
+        let (line, col) = (self.line, self.col);
+        self.bump();
+        Token { kind, line, col }
     }
 }
