@@ -1,26 +1,8 @@
 use std::iter::Peekable;
 use std::str::Chars;
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum TokenKind {
-    Main,
-    Return,
-    Int(i64),
-    LBrace,
-    RBrace,
-    Semicolon,
-    Plus,
-    Minus,
-    Star,
-    Slash,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Token {
-    pub kind: TokenKind,
-    pub line: usize,
-    pub col: usize,
-}
+use super::token_kind::TokenKind;
+use super::token::Token;
 
 pub struct Lexer<'a> {
     chars: Peekable<Chars<'a>>,
