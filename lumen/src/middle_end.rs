@@ -12,6 +12,7 @@ pub enum Instr {
     Sub(usize, Value, Value),
     Mul(usize, Value, Value),
     Div(usize, Value, Value),
+    VarDecl(usize, Value),
     Return(Value),
 }
 
@@ -20,9 +21,22 @@ pub fn lower(program: TypedProgram) -> Vec<Instr> {
     let mut next_temp = 0;
 
     for stmt in program.body {
-        let Stmt::Return(expr) = stmt;
-        let value = lower_expr(expr, &mut instructions, &mut next_temp);
-        instructions.push(Instr::Return(value));
+        match stmt {
+            Stmt::Return(expr) => {
+                let value = lower_expr(expr, &mut instructions, &mut next_temp);
+                instructions.push(Instr::Return(value));
+            }
+            Stmt::VarDecl(_, expr) => {
+                let value = lower_expr(expr, &mut instructions, &mut next_temp);
+                instructions.push(Instr::VarDecl(next_temp, value));
+                next_temp += 1;
+            }
+            Stmt::ValDecl(_, expr) => {
+                let value = lower_expr(expr, &mut instructions, &mut next_temp);
+                instructions.push(Instr::VarDecl(next_temp, value));
+                next_temp += 1;
+            }
+        }
     }
 
     instructions
@@ -46,6 +60,9 @@ fn lower_expr(expr: Expr, instructions: &mut Vec<Instr>, next_temp: &mut usize) 
             });
 
             Value::Temp(dest)
+        }
+        Expr::Var(_) => {
+            Value::Temp(0)
         }
     }
 }

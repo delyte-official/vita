@@ -62,6 +62,10 @@ pub fn compile_to_executable(instructions: &[Instr], output_path: &Path) -> Resu
                     .build_return(Some(&value))
                     .map_err(|e| format!("codegen error: {e}"))?;
             }
+            Instr::VarDecl(_, v) => {
+                let value = resolve(*v, &temps, i32_type);
+                temps.push(value);
+            }
         }
     }
 

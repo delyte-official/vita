@@ -10,4 +10,8 @@ pub enum TokenKind {
     Minus,
     Star,
     Slash,
+    Var,
+    Val,
+    Identifier(String),
+    Equal,
 }

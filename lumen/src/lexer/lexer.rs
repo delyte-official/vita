@@ -46,6 +46,7 @@ impl<'a> Lexer<'a> {
                 Some('-') => return Ok(Some(self.single_char_token(TokenKind::Minus))),
                 Some('*') => return Ok(Some(self.single_char_token(TokenKind::Star))),
                 Some('/') => return Ok(Some(self.single_char_token(TokenKind::Slash))),
+                Some('=') => return Ok(Some(self.single_char_token(TokenKind::Equal))),
                 Some(c) if c.is_ascii_digit() => {
                     let (line, col) = (self.line, self.col);
                     let mut text = String::new();
@@ -74,7 +75,9 @@ impl<'a> Lexer<'a> {
                     let kind = match word.as_str() {
                         "main" => TokenKind::Main,
                         "return" => TokenKind::Return,
-                        _ => return Err(format!("unknown word '{word}' (line {line}, column {col})")),
+                        "var" => TokenKind::Var,
+                        "val" => TokenKind::Val,
+                        _ => TokenKind::Identifier(word.clone()),
                     };
                     return Ok(Some(Token { kind, line, col }));
                 }

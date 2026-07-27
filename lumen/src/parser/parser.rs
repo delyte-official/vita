@@ -37,16 +37,52 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_stmt(&mut self) -> Result<Stmt, String> {
+    fn parse_return_stmt(&mut self) -> Result<Stmt, String> {
         self.expect(TokenKind::Return)?;
-        let value = self.parse_expr(0)?;
+        let expr = self.parse_expr(0)?;
         self.expect(TokenKind::Semicolon)?;
-        Ok(Stmt::Return(value))
+        Ok(Stmt::Return(expr))
+    }
+
+    fn parse_decl_stmt(&mut self, is_mutable: bool) -> Result<Stmt, String> {
+        if is_mutable {
+            self.expect(TokenKind::Var)?;
+        } else {
+            self.expect(TokenKind::Val)?;
+        }
+        let name = match self.advance()? {
+            Some(Token { kind: TokenKind::Identifier(name), .. }) => name,
+            Some(tok) => {
+                return Err(format!(
+                    "expected an identifier, found {:?} (line {}, column {})",
+                    tok.kind, tok.line, tok.col
+                ))
+            }
+            None => return Err("expected an identifier, found end of file".to_string()),
+        };
+        self.expect(TokenKind::Equal)?;
+        let expr = self.parse_expr(0)?;
+        self.expect(TokenKind::Semicolon)?;
+        if is_mutable {
+            Ok(Stmt::VarDecl(name, expr))
+        } else {
+            Ok(Stmt::ValDecl(name, expr))
+        }
+    }
+
+    fn parse_stmt(&mut self) -> Result<Stmt, String> {
+        match self.peek_kind() {
+            Some(TokenKind::Return) => self.parse_return_stmt(),
+            Some(TokenKind::Var) => self.parse_decl_stmt(true),
+            Some(TokenKind::Val) => self.parse_decl_stmt(false),
+            _ => Err("expected a statement".to_string()),
+        }
     }
 
     fn parse_term(&mut self) -> Result<Expr, String> {
         match self.advance()? {
             Some(Token { kind: TokenKind::Int(n), .. }) => Ok(Expr::Int(n)),
+            Some(Token { kind: TokenKind::Identifier(name), .. }) => Ok(Expr::Var(name)),
             Some(tok) => Err(format!(
                 "expected a number, found {:?} (line {}, column {})",
                 tok.kind, tok.line, tok.col

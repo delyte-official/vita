@@ -8,6 +8,7 @@ pub enum Expr {
         left: Box<Expr>,
         right: Box<Expr>,
     },
+    Var(String),
 }
 
 impl Expr {
