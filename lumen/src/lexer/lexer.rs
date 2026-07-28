@@ -73,7 +73,6 @@ impl<'a> Lexer<'a> {
                         }
                     }
                     let kind = match word.as_str() {
-                        "main" => TokenKind::Main,
                         "return" => TokenKind::Return,
                         "var" => TokenKind::Var,
                         "val" => TokenKind::Val,

@@ -2,5 +2,5 @@ use super::Function;
 
 #[derive(Debug)]
 pub struct Program {
-    pub main: Function,
+    pub functions: Vec<Function>,
 }

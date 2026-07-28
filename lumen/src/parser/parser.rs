@@ -105,23 +105,33 @@ impl<'a> Parser<'a> {
 pub fn parse(source: &str) -> Result<Program, String> {
     let mut parser = Parser::new(source)?;
 
-    parser.expect(TokenKind::Main)?;
-    parser.expect(TokenKind::LBrace)?;
+    let mut functions = vec![];
+    loop {        
+        let name = match parser.advance()? {
+            Some(Token { kind: TokenKind::Identifier(name), .. }) => name,
+            Some(tok) => {
+                return Err(format!(
+                    "expected a function name, found {:?} (line {}, column {})",
+                    tok.kind, tok.line, tok.col
+                ))
+            }
+            None => break,
+        };
+        parser.expect(TokenKind::LBrace)?;
 
-    let mut body = vec![];
-    while parser.peek_kind() != Some(TokenKind::RBrace) {
-        if parser.current.is_none() {
-            return Err("expected '}', found end of file".to_string());
+        let mut body = vec![];
+        while parser.peek_kind() != Some(TokenKind::RBrace) {
+            if parser.current.is_none() {
+                return Err("expected '}', found end of file".to_string());
+            }
+            body.push(parser.parse_stmt()?);
         }
-        body.push(parser.parse_stmt()?);
+
+        parser.expect(TokenKind::RBrace)?;
+        functions.push(Function { name, body });
     }
 
-    parser.expect(TokenKind::RBrace)?;
-
     Ok(Program {
-        main: Function {
-            name: "main".to_string(),
-            body,
-        },
+        functions: functions
     })
 }

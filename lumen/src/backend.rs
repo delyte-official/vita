@@ -8,63 +8,69 @@ use inkwell::targets::{
 use inkwell::values::IntValue;
 use inkwell::OptimizationLevel;
 
-use crate::middle_end::{Instr, Value};
+use crate::middle_end::{IRProgram, Instruction, Value};
 
-fn resolve<'ctx>(v: Value, temps: &[IntValue<'ctx>], i32_type: inkwell::types::IntType<'ctx>) -> IntValue<'ctx> {
+fn resolve<'ctx>(v: Value, temps: &[Option<IntValue<'ctx>>], locals: &[Option<IntValue<'ctx>>], i32_type: inkwell::types::IntType<'ctx>) -> IntValue<'ctx> {
     match v {
         Value::Const(n) => i32_type.const_int(n as u64, true),
-        Value::Temp(i) => temps[i],
+        Value::Temp(i) => temps[i].expect("temp used before being computed"),
+        Value::Var(slot) => locals[slot].expect("variable used before being declared"),
     }
 }
 
-pub fn compile_to_executable(instructions: &[Instr], output_path: &Path) -> Result<(), String> {
+pub fn compile_to_executable(program: &IRProgram, output_path: &Path) -> Result<(), String> {
     let context = Context::create();
     let module = context.create_module("vita_module");
     let builder = context.create_builder();
 
     let i32_type = context.i32_type();
-    let fn_type = i32_type.fn_type(&[], false);
-    let function = module.add_function("main", fn_type, None);
-    let entry_block = context.append_basic_block(function, "entry");
-    builder.position_at_end(entry_block);
 
-    let mut temps: Vec<IntValue> = vec![];
+    for func in &program.functions {
+        let fn_type = i32_type.fn_type(&[], false);
+        let function = module.add_function(&func.name, fn_type, None);
+        let entry_block = context.append_basic_block(function, "entry");
+        builder.position_at_end(entry_block);
 
-    for instr in instructions {
-        match instr {
-            Instr::Add(_, l, r) => {
-                let result = builder
-                    .build_int_add(resolve(*l, &temps, i32_type), resolve(*r, &temps, i32_type), "addtmp")
-                    .map_err(|e| format!("codegen error: {e}"))?;
-                temps.push(result);
-            }
-            Instr::Sub(_, l, r) => {
-                let result = builder
-                    .build_int_sub(resolve(*l, &temps, i32_type), resolve(*r, &temps, i32_type), "subtmp")
-                    .map_err(|e| format!("codegen error: {e}"))?;
-                temps.push(result);
-            }
-            Instr::Mul(_, l, r) => {
-                let result = builder
-                    .build_int_mul(resolve(*l, &temps, i32_type), resolve(*r, &temps, i32_type), "multmp")
-                    .map_err(|e| format!("codegen error: {e}"))?;
-                temps.push(result);
-            }
-            Instr::Div(_, l, r) => {
-                let result = builder
-                    .build_int_signed_div(resolve(*l, &temps, i32_type), resolve(*r, &temps, i32_type), "divtmp")
-                    .map_err(|e| format!("codegen error: {e}"))?;
-                temps.push(result);
-            }
-            Instr::Return(v) => {
-                let value = resolve(*v, &temps, i32_type);
-                builder
-                    .build_return(Some(&value))
-                    .map_err(|e| format!("codegen error: {e}"))?;
-            }
-            Instr::VarDecl(_, v) => {
-                let value = resolve(*v, &temps, i32_type);
-                temps.push(value);
+        let mut temps: Vec<Option<IntValue>> = vec![None; func.temp_count];
+        let mut locals: Vec<Option<IntValue>> = vec![None; func.local_count];
+
+        for instr in &func.instructions {
+            match instr {
+                Instruction::Add(dest, l, r) => {
+                    let result = builder
+                        .build_int_add(resolve(*l, &temps, &locals, i32_type), resolve(*r, &temps, &locals, i32_type), "addtmp")
+                        .map_err(|e| format!("codegen error: {e}"))?;
+                    temps[*dest] = Some(result);
+                }
+                Instruction::Sub(dest, l, r) => {
+                    let result = builder
+                        .build_int_sub(resolve(*l, &temps, &locals, i32_type), resolve(*r, &temps, &locals, i32_type), "subtmp")
+                        .map_err(|e| format!("codegen error: {e}"))?;
+                    temps[*dest] = Some(result);
+                }
+                Instruction::Mul(dest, l, r) => {
+                    let result = builder
+                        .build_int_mul(resolve(*l, &temps, &locals, i32_type), resolve(*r, &temps, &locals, i32_type), "multmp")
+                        .map_err(|e| format!("codegen error: {e}"))?;
+                    temps[*dest] = Some(result);
+                }
+                Instruction::Div(dest, l, r) => {
+                    let result = builder
+                        .build_int_signed_div(resolve(*l, &temps, &locals, i32_type), resolve(*r, &temps, &locals, i32_type), "divtmp")
+                        .map_err(|e| format!("codegen error: {e}"))?;
+                    temps[*dest] = Some(result);
+                }
+                Instruction::Return(v) => {
+                    let value = resolve(*v, &temps, &locals, i32_type);
+                    builder
+                        .build_return(Some(&value))
+                        .map_err(|e| format!("codegen error: {e}"))?;
+                    break;
+                }
+                Instruction::VarDecl(slot, v) => {
+                    let value = resolve(*v, &temps, &locals, i32_type);
+                    locals[*slot] = Some(value);
+                }
             }
         }
     }

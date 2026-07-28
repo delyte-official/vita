@@ -1,4 +1,9 @@
-main {
+test {
+    var f = 12 + 32;
+    return f;
+}
+
+res {
     var yo = 12;
     val tejo = 17 + 20 * 10 + 2 - 8;
     return 17 + 20 * 10 + 2 - yo;
