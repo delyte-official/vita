@@ -50,5 +50,11 @@ fn lower_expr(expr: TypedExpr, instructions: &mut Vec<Instruction>, next_temp: &
             });
             Value::Temp(dest)
         }
+        TypedExpr::FuncCall(_) => {
+            let dest = *next_temp;
+            *next_temp += 1;
+            instructions.push(Instruction::Call(dest));
+            Value::Temp(dest)
+        }
     }
 }

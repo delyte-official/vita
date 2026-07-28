@@ -62,6 +62,7 @@ fn check_expr(expr: &BoundedExpr) -> Result<TypedExpr, String> {
             })
         }
         BoundedExpr::Var(slot) => Ok(TypedExpr::Var(*slot)),
+        BoundedExpr::FuncCall(slot) => Ok(TypedExpr::FuncCall(*slot)),
     }
 }
 
@@ -77,5 +78,6 @@ fn infer(expr: &BoundedExpr) -> ExprType {
             ExprType::I32
         }
         BoundedExpr::Var(_) => ExprType::I32,
+        BoundedExpr::FuncCall(_) => ExprType::I32,
     }
 }

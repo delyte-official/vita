@@ -9,6 +9,7 @@ pub enum Expr {
         right: Box<Expr>,
     },
     Var(String),
+    FuncCall { name: String },
 }
 
 impl Expr {

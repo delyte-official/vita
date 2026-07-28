@@ -71,6 +71,19 @@ pub fn compile_to_executable(program: &IRProgram, output_path: &Path) -> Result<
                     let value = resolve(*v, &temps, &locals, i32_type);
                     locals[*slot] = Some(value);
                 }
+                Instruction::Call(func_index) => {
+                    let callee_name = &program.functions[*func_index].name;
+                    let callee = module.get_function(callee_name).ok_or(format!("function '{callee_name}' not found"))?;
+                    let call_site_value = builder
+                        .build_call(callee, &[], "calltmp")
+                        .map_err(|e| format!("codegen error: {e}"))?;
+                    let call_result = call_site_value
+                        .try_as_basic_value()
+                        .left()
+                        .ok_or("expected call to return a value")?
+                        .into_int_value();
+                    temps[*func_index] = Some(call_result);
+                }
             }
         }
     }

@@ -47,6 +47,8 @@ impl<'a> Lexer<'a> {
                 Some('*') => return Ok(Some(self.single_char_token(TokenKind::Star))),
                 Some('/') => return Ok(Some(self.single_char_token(TokenKind::Slash))),
                 Some('=') => return Ok(Some(self.single_char_token(TokenKind::Equal))),
+                Some('(') => return Ok(Some(self.single_char_token(TokenKind::LParen))),
+                Some(')') => return Ok(Some(self.single_char_token(TokenKind::RParen))),
                 Some(c) if c.is_ascii_digit() => {
                     let (line, col) = (self.line, self.col);
                     let mut text = String::new();

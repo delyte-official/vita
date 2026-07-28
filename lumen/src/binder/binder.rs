@@ -52,6 +52,7 @@ impl Binder {
     }
 
     fn bind_function(&mut self, func: &crate::parser::Function) -> Result<BoundedFunction, String> {
+        self.define(func.name.clone(), "i32".into())?;
         self.next_slot = 0;
         self.enter_scope();
         let mut bounded_stmts = vec![];
@@ -91,6 +92,11 @@ impl Binder {
                 let symbol = self.lookup(name)
                 .ok_or_else(|| format!("undeclared variable '{}'", name))?;
                 Ok(BoundedExpr::Var(symbol.slot))
+            }
+            Expr::FuncCall { name } => {
+                let symbol = self.lookup(name)
+                .ok_or_else(|| format!("undeclared function '{}'", name))?;
+                Ok(BoundedExpr::FuncCall(symbol.slot))
             }
             Expr::Binary { op, left, right } => {
                 let left_bound = self.bind_expr(left)?;

@@ -82,7 +82,15 @@ impl<'a> Parser<'a> {
     fn parse_term(&mut self) -> Result<Expr, String> {
         match self.advance()? {
             Some(Token { kind: TokenKind::Int(n), .. }) => Ok(Expr::Int(n)),
-            Some(Token { kind: TokenKind::Identifier(name), .. }) => Ok(Expr::Var(name)),
+            Some(Token { kind: TokenKind::Identifier(name), .. }) => {
+                if let Some(Token { kind: TokenKind::LParen, .. }) = self.peek() {
+                    self.advance()?; // consume
+                    self.expect(TokenKind::RParen)?;
+                    Ok(Expr::FuncCall{name})
+                } else {
+                    Ok(Expr::Var(name))
+                }
+            }
             Some(tok) => Err(format!(
                 "expected a number, found {:?} (line {}, column {})",
                 tok.kind, tok.line, tok.col

@@ -4,6 +4,8 @@ pub enum TokenKind {
     Int(i64),
     LBrace,
     RBrace,
+    LParen,
+    RParen,
     Semicolon,
     Plus,
     Minus,

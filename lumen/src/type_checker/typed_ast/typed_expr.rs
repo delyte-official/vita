@@ -10,6 +10,7 @@ pub enum TypedExpr {
         ty: ExprType,
     },
     Var(usize),
+    FuncCall(usize),
 }
 
 impl TypedExpr {
@@ -18,6 +19,7 @@ impl TypedExpr {
             TypedExpr::Int(_) => ExprType::I32,
             TypedExpr::Binary { ty, .. } => *ty,
             TypedExpr::Var(_) => ExprType::I32,
+            TypedExpr::FuncCall(_) => ExprType::I32,
         }
     }
 }

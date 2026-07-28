@@ -9,4 +9,5 @@ pub enum BoundedExpr {
         right: Box<BoundedExpr>,
     },
     Var(usize),
+    FuncCall(usize),
 }

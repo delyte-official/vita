@@ -7,4 +7,5 @@ pub enum Instruction {
     Div(usize, Value, Value),
     VarDecl(usize, Value),
     Return(Value),
+    Call(usize),
 }
