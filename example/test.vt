@@ -4,13 +4,14 @@ test {
 }
 
 main {
+    // this is a comment
     var yo = 69;
     val tejo = 11;
     var yo = 12 + test();
-    val tejo = 17 + 20 * 10 + 2 - 8;
+    val tejo = 17 + 20 * 10 + 2 - 8; // this is another comment
     test();
-    yo = 200;
-    if (2)
+    yo = 200; // so is this
+    if (2) // and here
         return 17 + 20 * 10 + 2 - yo;
     elif (2)
         return 3;

@@ -39,13 +39,29 @@ impl<'a> Lexer<'a> {
                 Some(c) if c.is_whitespace() => {
                     self.bump();
                 }
+                Some('/') => {
+                    self.bump();
+                    if let Some('/') = self.chars.peek() {
+                        self.bump();
+                    } else {
+                        return Ok(Some(self.single_char_token(TokenKind::Minus)));
+                    }
+                    // skip the comment (whole line)
+                    while let Some(c) = self.chars.peek() {
+                        if *c == '\n' {
+                            self.bump();
+                            break;
+                        }
+                        self.bump();
+                    }
+                    continue;
+                }
                 Some('{') => return Ok(Some(self.single_char_token(TokenKind::LBrace))),
                 Some('}') => return Ok(Some(self.single_char_token(TokenKind::RBrace))),
                 Some(';') => return Ok(Some(self.single_char_token(TokenKind::Semicolon))),
                 Some('+') => return Ok(Some(self.single_char_token(TokenKind::Plus))),
                 Some('-') => return Ok(Some(self.single_char_token(TokenKind::Minus))),
                 Some('*') => return Ok(Some(self.single_char_token(TokenKind::Star))),
-                Some('/') => return Ok(Some(self.single_char_token(TokenKind::Slash))),
                 Some('=') => return Ok(Some(self.single_char_token(TokenKind::Equal))),
                 Some('(') => return Ok(Some(self.single_char_token(TokenKind::LParen))),
                 Some(')') => return Ok(Some(self.single_char_token(TokenKind::RParen))),
