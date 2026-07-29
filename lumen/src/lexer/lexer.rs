@@ -78,6 +78,9 @@ impl<'a> Lexer<'a> {
                         "return" => TokenKind::Return,
                         "var" => TokenKind::Var,
                         "val" => TokenKind::Val,
+                        "if" => TokenKind::If,
+                        "elif" => TokenKind::Elif,
+                        "else" => TokenKind::Else,
                         _ => TokenKind::Identifier(word.clone()),
                     };
                     return Ok(Some(Token { kind, line, col }));

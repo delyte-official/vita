@@ -70,13 +70,54 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_block(&mut self) -> Result<Vec<Stmt>, String> {
+        self.expect(TokenKind::LBrace)?;
+        let mut stmts = vec![];
+        while self.peek_kind() != Some(TokenKind::RBrace) {
+            if self.current.is_none() {
+                return Err("expected '}', found end of file".to_string());
+            }
+            stmts.push(self.parse_stmt()?);
+        }
+        self.expect(TokenKind::RBrace)?;
+        Ok(stmts)
+    }
+
     fn parse_stmt(&mut self) -> Result<Stmt, String> {
         match self.peek_kind() {
             Some(TokenKind::Return) => self.parse_return_stmt(),
             Some(TokenKind::Var) => self.parse_decl_stmt(true),
             Some(TokenKind::Val) => self.parse_decl_stmt(false),
+            Some(TokenKind::If) => self.parse_if_stmt(),
             _ => Err("expected a statement".to_string()),
         }
+    }
+
+    fn parse_if_stmt(&mut self) -> Result<Stmt, String> {
+        self.expect(TokenKind::If)?;
+        self.expect(TokenKind::LParen)?;
+        let condition = self.parse_expr(0)?;
+        self.expect(TokenKind::RParen)?;
+        let then_branch = self.parse_block()?;
+
+        let mut elif_branches = vec![];
+        while self.peek_kind() == Some(TokenKind::Elif) {
+            self.advance()?;
+            self.expect(TokenKind::LParen)?;
+            let elif_condition = self.parse_expr(0)?;
+            self.expect(TokenKind::RParen)?;
+            let elif_body = self.parse_block()?;
+            elif_branches.push((elif_condition, elif_body));
+        }
+
+        let else_branch = if self.peek_kind() == Some(TokenKind::Else) {
+            self.advance()?;
+            Some(self.parse_block()?)
+        } else {
+            None
+        };
+
+        Ok(Stmt::If { condition, then_branch, elif_branches, else_branch })
     }
 
     fn parse_term(&mut self) -> Result<Expr, String> {
@@ -84,9 +125,9 @@ impl<'a> Parser<'a> {
             Some(Token { kind: TokenKind::Int(n), .. }) => Ok(Expr::Int(n)),
             Some(Token { kind: TokenKind::Identifier(name), .. }) => {
                 if let Some(Token { kind: TokenKind::LParen, .. }) = self.peek() {
-                    self.advance()?; // consume
+                    self.advance()?;
                     self.expect(TokenKind::RParen)?;
-                    Ok(Expr::FuncCall{name})
+                    Ok(Expr::FuncCall { name })
                 } else {
                     Ok(Expr::Var(name))
                 }
@@ -102,7 +143,7 @@ impl<'a> Parser<'a> {
     fn parse_expr(&mut self, min_precedence: u8) -> Result<Expr, String> {
         let mut left = self.parse_term()?;
         while let Some(kind) = self.peek_kind() && let Some(op) = BinaryOp::from_token(&kind) && op.precedence() >= min_precedence {
-                self.advance()?; // consume the op
+                self.advance()?;
                 let right = self.parse_expr(op.minimum_binding_power())?;
                 left = Expr::binary(op, left, right);
         }
@@ -114,7 +155,7 @@ pub fn parse(source: &str) -> Result<Program, String> {
     let mut parser = Parser::new(source)?;
 
     let mut functions = vec![];
-    loop {        
+    loop {
         let name = match parser.advance()? {
             Some(Token { kind: TokenKind::Identifier(name), .. }) => name,
             Some(tok) => {
@@ -125,21 +166,9 @@ pub fn parse(source: &str) -> Result<Program, String> {
             }
             None => break,
         };
-        parser.expect(TokenKind::LBrace)?;
-
-        let mut body = vec![];
-        while parser.peek_kind() != Some(TokenKind::RBrace) {
-            if parser.current.is_none() {
-                return Err("expected '}', found end of file".to_string());
-            }
-            body.push(parser.parse_stmt()?);
-        }
-
-        parser.expect(TokenKind::RBrace)?;
+        let body = parser.parse_block()?;
         functions.push(Function { name, body });
     }
 
-    Ok(Program {
-        functions: functions
-    })
+    Ok(Program { functions })
 }

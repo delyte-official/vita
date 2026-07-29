@@ -13,6 +13,9 @@ pub enum TokenKind {
     Slash,
     Var,
     Val,
+    If,
+    Elif,
+    Else,
     Identifier(String),
     Equal,
 }

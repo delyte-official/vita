@@ -35,7 +35,7 @@ impl Binder {
     }
 
     fn define(&mut self, name: String, ty: String) -> Result<usize, String> {
-        let stack = self.symbols.entry(name.clone()).or_default();        
+        let stack = self.symbols.entry(name.clone()).or_default();
         if let Some(top) = stack.last() && top.scope_depth == self.current_depth {
             return Err(format!("variable '{}' is already defined in the current scope", name));
         }
@@ -51,22 +51,38 @@ impl Binder {
         Ok(slot)
     }
 
-    fn bind_function(&mut self, func: &crate::parser::Function) -> Result<BoundedFunction, String> {
-        self.define(func.name.clone(), "i32".into())?;
-        self.next_slot = 0;
-        self.enter_scope();
-        let mut bounded_stmts = vec![];
-
-        for stmt in &func.body {
-            bounded_stmts.push(self.bind_stmt(stmt)?);
+    fn define_function(&mut self, name: String, index: usize) -> Result<(), String> {
+        let stack = self.symbols.entry(name.clone()).or_default();
+        if let Some(top) = stack.last() && top.scope_depth == self.current_depth {
+            return Err(format!("function '{}' is already defined", name));
         }
+        stack.push(Symbol {
+            name,
+            scope_depth: self.current_depth,
+            ty: "i32".into(),
+            slot: index,
+        });
+        Ok(())
+    }
 
-        self.exit_scope();
+    fn bind_function(&mut self, func: &crate::parser::Function) -> Result<BoundedFunction, String> {
+        self.next_slot = 0;
+        let bounded_stmts = self.bind_block(&func.body)?;
         Ok(BoundedFunction {
             name: func.name.clone(),
             body: bounded_stmts,
             local_count: self.next_slot,
         })
+    }
+
+    fn bind_block(&mut self, stmts: &[Stmt]) -> Result<Vec<BoundedStmt>, String> {
+        self.enter_scope();
+        let mut bounded_stmts = vec![];
+        for stmt in stmts {
+            bounded_stmts.push(self.bind_stmt(stmt)?);
+        }
+        self.exit_scope();
+        Ok(bounded_stmts)
     }
 
     fn bind_stmt(&mut self, stmt: &Stmt) -> Result<BoundedStmt, String> {
@@ -81,6 +97,28 @@ impl Binder {
                 let bound_expr = self.bind_expr(expr)?;
                 let slot = self.define(name.clone(), "i32".into())?;
                 Ok(BoundedStmt::ValDecl(slot, bound_expr))
+            }
+            Stmt::If { condition, then_branch, elif_branches, else_branch } => {
+                let bound_condition = self.bind_expr(condition)?;
+                let bound_then_branch = self.bind_block(then_branch)?;
+
+                let mut bound_elif_branches = vec![];
+                for (elif_condition, elif_body) in elif_branches {
+                    let bound_elif_condition = self.bind_expr(elif_condition)?;
+                    let bound_elif_body = self.bind_block(elif_body)?;
+                    bound_elif_branches.push((bound_elif_condition, bound_elif_body));
+                }
+
+                let bound_else_branch = match else_branch {
+                    Some(stmts) => Some(self.bind_block(stmts)?),
+                    None => None,
+                };
+                Ok(BoundedStmt::If {
+                    condition: bound_condition,
+                    then_branch: bound_then_branch,
+                    elif_branches: bound_elif_branches,
+                    else_branch: bound_else_branch,
+                })
             }
         }
     }
@@ -111,6 +149,10 @@ impl Binder {
     }
 
     fn bind_program(&mut self, program: &Program) -> Result<BoundedProgram, String> {
+        for (index, func) in program.functions.iter().enumerate() {
+            self.define_function(func.name.clone(), index)?;
+        }
+
         let mut bounded_funcs: Vec<BoundedFunction> = vec![];
         for func in &program.functions {
             bounded_funcs.push(self.bind_function(func)?);

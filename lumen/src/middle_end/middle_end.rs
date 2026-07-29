@@ -6,20 +6,8 @@ pub fn lower(program: TypedProgram) -> IRProgram {
     let mut ir_functions = vec![];
 
     for func in program.functions {
-        let mut instructions: Vec<Instruction> = vec![];
         let mut next_temp = 0;
-        for stmt in func.body {
-            match stmt {
-                TypedStmt::Return(expr) => {
-                    let value = lower_expr(expr, &mut instructions, &mut next_temp);
-                    instructions.push(Instruction::Return(value));
-                }
-                TypedStmt::VarDecl(slot, expr) | TypedStmt::ValDecl(slot, expr) => {
-                    let value = lower_expr(expr, &mut instructions, &mut next_temp);
-                    instructions.push(Instruction::VarDecl(slot, value));
-                }
-            }
-        }
+        let instructions = lower_stmts(func.body, &mut next_temp);
         ir_functions.push(IRFunction {
             name: func.name,
             instructions,
@@ -31,6 +19,60 @@ pub fn lower(program: TypedProgram) -> IRProgram {
     IRProgram {
         functions: ir_functions,
     }
+}
+
+fn lower_stmts(stmts: Vec<TypedStmt>, next_temp: &mut usize) -> Vec<Instruction> {
+    let mut instructions = vec![];
+    for stmt in stmts {
+        lower_stmt(stmt, &mut instructions, next_temp);
+    }
+    instructions
+}
+
+fn lower_stmt(stmt: TypedStmt, instructions: &mut Vec<Instruction>, next_temp: &mut usize) {
+    match stmt {
+        TypedStmt::Return(expr) => {
+            let value = lower_expr(expr, instructions, next_temp);
+            instructions.push(Instruction::Return(value));
+        }
+        TypedStmt::VarDecl(slot, expr) | TypedStmt::ValDecl(slot, expr) => {
+            let value = lower_expr(expr, instructions, next_temp);
+            instructions.push(Instruction::VarDecl(slot, value));
+        }
+        TypedStmt::If { condition, then_branch, elif_branches, else_branch } => {
+            let cond_value = lower_expr(condition, instructions, next_temp);
+            let then_instructions = lower_stmts(then_branch, next_temp);
+            let else_instructions = lower_if_chain(elif_branches, else_branch, next_temp);
+            instructions.push(Instruction::If {
+                condition: cond_value,
+                then_branch: then_instructions,
+                else_branch: else_instructions,
+            });
+        }
+    }
+}
+
+fn lower_if_chain(
+    mut elif_branches: Vec<(TypedExpr, Vec<TypedStmt>)>,
+    else_branch: Option<Vec<TypedStmt>>,
+    next_temp: &mut usize,
+) -> Option<Vec<Instruction>> {
+    if elif_branches.is_empty() {
+        return else_branch.map(|stmts| lower_stmts(stmts, next_temp));
+    }
+
+    let (condition, body) = elif_branches.remove(0);
+    let mut instructions = vec![];
+    let cond_value = lower_expr(condition, &mut instructions, next_temp);
+    let then_instructions = lower_stmts(body, next_temp);
+    let rest = lower_if_chain(elif_branches, else_branch, next_temp);
+
+    instructions.push(Instruction::If {
+        condition: cond_value,
+        then_branch: then_instructions,
+        else_branch: rest,
+    });
+    Some(instructions)
 }
 
 fn lower_expr(expr: TypedExpr, instructions: &mut Vec<Instruction>, next_temp: &mut usize) -> Value {
@@ -50,10 +92,10 @@ fn lower_expr(expr: TypedExpr, instructions: &mut Vec<Instruction>, next_temp: &
             });
             Value::Temp(dest)
         }
-        TypedExpr::FuncCall(_) => {
+        TypedExpr::FuncCall(func_index) => {
             let dest = *next_temp;
             *next_temp += 1;
-            instructions.push(Instruction::Call(dest));
+            instructions.push(Instruction::Call(dest, func_index));
             Value::Temp(dest)
         }
     }

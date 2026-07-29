@@ -1,21 +1,133 @@
 use std::path::Path;
 use std::process::Command;
 
+use inkwell::builder::Builder;
 use inkwell::context::Context;
+use inkwell::module::Module;
+use inkwell::passes::PassBuilderOptions;
 use inkwell::targets::{
     CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
 };
-use inkwell::values::IntValue;
-use inkwell::OptimizationLevel;
+use inkwell::types::IntType;
+use inkwell::values::{FunctionValue, IntValue};
+use inkwell::{IntPredicate, OptimizationLevel};
 
 use crate::middle_end::{IRProgram, Instruction, Value};
 
-fn resolve<'ctx>(v: Value, temps: &[Option<IntValue<'ctx>>], locals: &[Option<IntValue<'ctx>>], i32_type: inkwell::types::IntType<'ctx>) -> IntValue<'ctx> {
+fn resolve<'ctx>(v: Value, temps: &[Option<IntValue<'ctx>>], locals: &[Option<IntValue<'ctx>>], i32_type: IntType<'ctx>) -> IntValue<'ctx> {
     match v {
         Value::Const(n) => i32_type.const_int(n as u64, true),
         Value::Temp(i) => temps[i].expect("temp used before being computed"),
         Value::Var(slot) => locals[slot].expect("variable used before being declared"),
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compile_instructions<'ctx>(
+    context: &'ctx Context,
+    module: &Module<'ctx>,
+    builder: &Builder<'ctx>,
+    program: &IRProgram,
+    function: FunctionValue<'ctx>,
+    instructions: &[Instruction],
+    temps: &mut [Option<IntValue<'ctx>>],
+    locals: &mut [Option<IntValue<'ctx>>],
+    i32_type: IntType<'ctx>,
+) -> Result<bool, String> {
+    for instr in instructions {
+        match instr {
+            Instruction::Add(dest, l, r) => {
+                let result = builder
+                    .build_int_add(resolve(*l, temps, locals, i32_type), resolve(*r, temps, locals, i32_type), "addtmp")
+                    .map_err(|e| format!("codegen error: {e}"))?;
+                temps[*dest] = Some(result);
+            }
+            Instruction::Sub(dest, l, r) => {
+                let result = builder
+                    .build_int_sub(resolve(*l, temps, locals, i32_type), resolve(*r, temps, locals, i32_type), "subtmp")
+                    .map_err(|e| format!("codegen error: {e}"))?;
+                temps[*dest] = Some(result);
+            }
+            Instruction::Mul(dest, l, r) => {
+                let result = builder
+                    .build_int_mul(resolve(*l, temps, locals, i32_type), resolve(*r, temps, locals, i32_type), "multmp")
+                    .map_err(|e| format!("codegen error: {e}"))?;
+                temps[*dest] = Some(result);
+            }
+            Instruction::Div(dest, l, r) => {
+                let result = builder
+                    .build_int_signed_div(resolve(*l, temps, locals, i32_type), resolve(*r, temps, locals, i32_type), "divtmp")
+                    .map_err(|e| format!("codegen error: {e}"))?;
+                temps[*dest] = Some(result);
+            }
+            Instruction::VarDecl(slot, v) => {
+                let value = resolve(*v, temps, locals, i32_type);
+                locals[*slot] = Some(value);
+            }
+            Instruction::Call(dest, func_index) => {
+                let callee_name = &program.functions[*func_index].name;
+                let callee = module.get_function(callee_name).ok_or(format!("function '{callee_name}' not found"))?;
+                let call_site_value = builder
+                    .build_call(callee, &[], "calltmp")
+                    .map_err(|e| format!("codegen error: {e}"))?;
+                let call_result = call_site_value
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or("expected call to return a value")?
+                    .into_int_value();
+                temps[*dest] = Some(call_result);
+            }
+            Instruction::Return(v) => {
+                let value = resolve(*v, temps, locals, i32_type);
+                builder
+                    .build_return(Some(&value))
+                    .map_err(|e| format!("codegen error: {e}"))?;
+                return Ok(true);
+            }
+            Instruction::If { condition, then_branch, else_branch } => {
+                let cond_value = resolve(*condition, temps, locals, i32_type);
+                let zero = i32_type.const_int(0, false);
+                let cond_bool = builder
+                    .build_int_compare(IntPredicate::NE, cond_value, zero, "ifcond")
+                    .map_err(|e| format!("codegen error: {e}"))?;
+
+                let then_bb = context.append_basic_block(function, "then");
+                let else_bb = context.append_basic_block(function, "else");
+                let merge_bb = context.append_basic_block(function, "ifcont");
+
+                builder
+                    .build_conditional_branch(cond_bool, then_bb, else_bb)
+                    .map_err(|e| format!("codegen error: {e}"))?;
+
+                builder.position_at_end(then_bb);
+                let then_terminated =
+                    compile_instructions(context, module, builder, program, function, then_branch, temps, locals, i32_type)?;
+                if !then_terminated {
+                    builder.build_unconditional_branch(merge_bb).map_err(|e| format!("codegen error: {e}"))?;
+                }
+
+                builder.position_at_end(else_bb);
+                let else_terminated = match else_branch {
+                    Some(else_instructions) => {
+                        compile_instructions(context, module, builder, program, function, else_instructions, temps, locals, i32_type)?
+                    }
+                    None => false,
+                };
+                if !else_terminated {
+                    builder.build_unconditional_branch(merge_bb).map_err(|e| format!("codegen error: {e}"))?;
+                }
+
+                if then_terminated && else_terminated {
+                    builder.position_at_end(merge_bb);
+                    builder.build_unreachable().map_err(|e| format!("codegen error: {e}"))?;
+                    return Ok(true);
+                }
+
+                builder.position_at_end(merge_bb);
+            }
+        }
+    }
+    Ok(false)
 }
 
 pub fn compile_to_executable(program: &IRProgram, output_path: &Path) -> Result<(), String> {
@@ -27,75 +139,23 @@ pub fn compile_to_executable(program: &IRProgram, output_path: &Path) -> Result<
 
     for func in &program.functions {
         let fn_type = i32_type.fn_type(&[], false);
-        let function = module.add_function(&func.name, fn_type, None);
+        module.add_function(&func.name, fn_type, None);
+    }
+
+    for func in &program.functions {
+        let function = module.get_function(&func.name).expect("function was just declared above");
         let entry_block = context.append_basic_block(function, "entry");
         builder.position_at_end(entry_block);
 
         let mut temps: Vec<Option<IntValue>> = vec![None; func.temp_count];
         let mut locals: Vec<Option<IntValue>> = vec![None; func.local_count];
 
-        for instr in &func.instructions {
-            match instr {
-                Instruction::Add(dest, l, r) => {
-                    let result = builder
-                        .build_int_add(resolve(*l, &temps, &locals, i32_type), resolve(*r, &temps, &locals, i32_type), "addtmp")
-                        .map_err(|e| format!("codegen error: {e}"))?;
-                    temps[*dest] = Some(result);
-                }
-                Instruction::Sub(dest, l, r) => {
-                    let result = builder
-                        .build_int_sub(resolve(*l, &temps, &locals, i32_type), resolve(*r, &temps, &locals, i32_type), "subtmp")
-                        .map_err(|e| format!("codegen error: {e}"))?;
-                    temps[*dest] = Some(result);
-                }
-                Instruction::Mul(dest, l, r) => {
-                    let result = builder
-                        .build_int_mul(resolve(*l, &temps, &locals, i32_type), resolve(*r, &temps, &locals, i32_type), "multmp")
-                        .map_err(|e| format!("codegen error: {e}"))?;
-                    temps[*dest] = Some(result);
-                }
-                Instruction::Div(dest, l, r) => {
-                    let result = builder
-                        .build_int_signed_div(resolve(*l, &temps, &locals, i32_type), resolve(*r, &temps, &locals, i32_type), "divtmp")
-                        .map_err(|e| format!("codegen error: {e}"))?;
-                    temps[*dest] = Some(result);
-                }
-                Instruction::Return(v) => {
-                    let value = resolve(*v, &temps, &locals, i32_type);
-                    builder
-                        .build_return(Some(&value))
-                        .map_err(|e| format!("codegen error: {e}"))?;
-                    break;
-                }
-                Instruction::VarDecl(slot, v) => {
-                    let value = resolve(*v, &temps, &locals, i32_type);
-                    locals[*slot] = Some(value);
-                }
-                Instruction::Call(func_index) => {
-                    let callee_name = &program.functions[*func_index].name;
-                    let callee = module.get_function(callee_name).ok_or(format!("function '{callee_name}' not found"))?;
-                    let call_site_value = builder
-                        .build_call(callee, &[], "calltmp")
-                        .map_err(|e| format!("codegen error: {e}"))?;
-                    let call_result = call_site_value
-                        .try_as_basic_value()
-                        .left()
-                        .ok_or("expected call to return a value")?
-                        .into_int_value();
-                    temps[*func_index] = Some(call_result);
-                }
-            }
-        }
+        compile_instructions(&context, &module, &builder, program, function, &func.instructions, &mut temps, &mut locals, i32_type)?;
     }
 
     if let Err(e) = module.verify() {
         return Err(format!("generated invalid LLVM IR:\n{e}"));
     }
-
-    let ll_path = output_path.with_extension("ll");
-    module
-        .print_to_file(&ll_path)
-        .map_err(|e| format!("couldn't write .ll file: {e}"))?;
 
     Target::initialize_native(&InitializationConfig::default())
         .map_err(|e| format!("couldn't initialize LLVM target: {e}"))?;
@@ -107,13 +167,26 @@ pub fn compile_to_executable(program: &IRProgram, output_path: &Path) -> Result<
             &triple,
             &TargetMachine::get_host_cpu_name().to_string(),
             &TargetMachine::get_host_cpu_features().to_string(),
-            OptimizationLevel::None,
+            OptimizationLevel::Default,
             RelocMode::Default,
             CodeModel::Default,
         )
         .ok_or("couldn't create a target machine for this CPU")?;
 
+    module
+        .run_passes("default<O2>", &target_machine, PassBuilderOptions::create())
+        .map_err(|e| format!("optimization failed: {e}"))?;
+
+    let ll_path = output_path.with_extension("ll");
+    module
+        .print_to_file(&ll_path)
+        .map_err(|e| format!("couldn't write .ll file: {e}"))?;
+
     let obj_path = output_path.with_extension("o");
+    let asm_path = output_path.with_extension("s");
+    target_machine
+        .write_to_file(&module, FileType::Assembly, &asm_path)
+        .map_err(|e| format!("couldn't write assembly file: {e}"))?;
     target_machine
         .write_to_file(&module, FileType::Object, &obj_path)
         .map_err(|e| format!("couldn't write object file: {e}"))?;

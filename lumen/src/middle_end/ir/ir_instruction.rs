@@ -7,5 +7,10 @@ pub enum Instruction {
     Div(usize, Value, Value),
     VarDecl(usize, Value),
     Return(Value),
-    Call(usize),
+    Call(usize, usize),
+    If {
+        condition: Value,
+        then_branch: Vec<Instruction>,
+        else_branch: Option<Vec<Instruction>>,
+    },
 }
