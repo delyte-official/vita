@@ -53,19 +53,24 @@ fn lower_stmt(stmt: TypedStmt, instructions: &mut Vec<Instruction>, next_temp: &
 }
 
 fn lower_if_chain(
-    mut elif_branches: Vec<(TypedExpr, Vec<TypedStmt>)>,
+    elif_branches: Option<Vec<(TypedExpr, Vec<TypedStmt>)>>,
     else_branch: Option<Vec<TypedStmt>>,
     next_temp: &mut usize,
 ) -> Option<Vec<Instruction>> {
-    if elif_branches.is_empty() {
+    let is_elif_empty = match &elif_branches {
+        Some(branches) => branches.is_empty(),
+        None => true,
+    };
+    if is_elif_empty {
         return else_branch.map(|stmts| lower_stmts(stmts, next_temp));
     }
+    let mut branches = elif_branches.unwrap();
+    let (condition, body) = branches.remove(0);
 
-    let (condition, body) = elif_branches.remove(0);
     let mut instructions = vec![];
     let cond_value = lower_expr(condition, &mut instructions, next_temp);
     let then_instructions = lower_stmts(body, next_temp);
-    let rest = lower_if_chain(elif_branches, else_branch, next_temp);
+    let rest = lower_if_chain(Some(branches), else_branch, next_temp);
 
     instructions.push(Instruction::If {
         condition: cond_value,

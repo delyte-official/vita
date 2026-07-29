@@ -8,7 +8,7 @@ pub enum BoundedStmt {
     If {
         condition: BoundedExpr,
         then_branch: Vec<BoundedStmt>,
-        elif_branches: Vec<(BoundedExpr, Vec<BoundedStmt>)>,
+        elif_branches: Option<Vec<(BoundedExpr, Vec<BoundedStmt>)>>,
         else_branch: Option<Vec<BoundedStmt>>,
     },
 }

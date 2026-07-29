@@ -102,12 +102,17 @@ impl Binder {
                 let bound_condition = self.bind_expr(condition)?;
                 let bound_then_branch = self.bind_block(then_branch)?;
 
-                let mut bound_elif_branches = vec![];
-                for (elif_condition, elif_body) in elif_branches {
-                    let bound_elif_condition = self.bind_expr(elif_condition)?;
-                    let bound_elif_body = self.bind_block(elif_body)?;
-                    bound_elif_branches.push((bound_elif_condition, bound_elif_body));
-                }
+                let bound_elif_branches = if let Some(elif_branches) = elif_branches {
+                    let mut list = vec![];
+                    for (elif_condition, elif_body) in elif_branches {
+                        let bound_elif_condition = self.bind_expr(&elif_condition)?;
+                        let bound_elif_body = self.bind_block(&elif_body)?;
+                        list.push((bound_elif_condition, bound_elif_body));
+                    }
+                    Some(list)
+                } else {
+                    None
+                };
 
                 let bound_else_branch = match else_branch {
                     Some(stmts) => Some(self.bind_block(stmts)?),

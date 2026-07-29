@@ -6,15 +6,10 @@ test {
 main {
     var yo = 12 + test();
     val tejo = 17 + 20 * 10 + 2 - 8;
-    if (2) {
-        if (test() - 44) {
-            return 17 + 20 * 10 + 2 - yo;
-        } else {
-            return 5;
-        }
-    } elif (2) {
+    if (2)
+        return 17 + 20 * 10 + 2 - yo;
+    elif (2)
         return 3;
-    } else {
+    else
         return 2;
-    }
 }

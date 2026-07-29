@@ -77,28 +77,40 @@ impl<'a> Parser<'a> {
             if self.current.is_none() {
                 return Err("expected '}', found end of file".to_string());
             }
-            stmts.push(self.parse_stmt()?);
+            stmts.push(self.parse_stmt(true)?);
         }
         self.expect(TokenKind::RBrace)?;
         Ok(stmts)
     }
 
-    fn parse_stmt(&mut self) -> Result<Stmt, String> {
+    fn parse_stmt(&mut self, allow_block: bool) -> Result<Stmt, String> {
         match self.peek_kind() {
             Some(TokenKind::Return) => self.parse_return_stmt(),
             Some(TokenKind::Var) => self.parse_decl_stmt(true),
             Some(TokenKind::Val) => self.parse_decl_stmt(false),
-            Some(TokenKind::If) => self.parse_if_stmt(),
+            Some(TokenKind::If) => self.parse_if_stmt(allow_block),
             _ => Err("expected a statement".to_string()),
         }
     }
 
-    fn parse_if_stmt(&mut self) -> Result<Stmt, String> {
+    fn parse_if_stmt(&mut self, allow_block: bool) -> Result<Stmt, String> {
         self.expect(TokenKind::If)?;
         self.expect(TokenKind::LParen)?;
         let condition = self.parse_expr(0)?;
         self.expect(TokenKind::RParen)?;
-        let then_branch = self.parse_block()?;
+        let then_branch: Vec<Stmt>;
+        if let Some(Token { kind: TokenKind::LBrace, .. }) = self.peek() {
+            if !allow_block {
+                return Err("blocks are not allowed here".to_string());
+            }
+            then_branch = self.parse_block()?;
+        } else {
+            then_branch = self.parse_stmt(false).map(|stmt| vec![stmt])?;
+        }
+
+        if !allow_block {
+            return Ok(Stmt::If { condition, then_branch, elif_branches: None, else_branch: None })
+        }
 
         let mut elif_branches = vec![];
         while self.peek_kind() == Some(TokenKind::Elif) {
@@ -106,18 +118,26 @@ impl<'a> Parser<'a> {
             self.expect(TokenKind::LParen)?;
             let elif_condition = self.parse_expr(0)?;
             self.expect(TokenKind::RParen)?;
-            let elif_body = self.parse_block()?;
+            let elif_body: Vec<Stmt> = if let Some(Token { kind: TokenKind::LBrace, .. }) = self.peek() {
+                self.parse_block()?
+            } else {
+                vec![self.parse_stmt(allow_block)?]
+            };
             elif_branches.push((elif_condition, elif_body));
         }
 
         let else_branch = if self.peek_kind() == Some(TokenKind::Else) {
             self.advance()?;
-            Some(self.parse_block()?)
+            if let Some(Token { kind: TokenKind::LBrace, .. }) = self.peek() {
+                Some(self.parse_block()?)
+            } else {
+                Some(vec![self.parse_stmt(false)?])
+            }
         } else {
             None
         };
 
-        Ok(Stmt::If { condition, then_branch, elif_branches, else_branch })
+        Ok(Stmt::If { condition, then_branch, elif_branches: Some(elif_branches), else_branch })
     }
 
     fn parse_term(&mut self) -> Result<Expr, String> {

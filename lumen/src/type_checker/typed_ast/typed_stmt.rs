@@ -8,7 +8,7 @@ pub enum TypedStmt {
     If {
         condition: TypedExpr,
         then_branch: Vec<TypedStmt>,
-        elif_branches: Vec<(TypedExpr, Vec<TypedStmt>)>,
+        elif_branches: Option<Vec<(TypedExpr, Vec<TypedStmt>)>>,
         else_branch: Option<Vec<TypedStmt>>,
     },
 }
