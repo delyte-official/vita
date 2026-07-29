@@ -11,4 +11,6 @@ pub enum TypedStmt {
         elif_branches: Option<Vec<(TypedExpr, Vec<TypedStmt>)>>,
         else_branch: Option<Vec<TypedStmt>>,
     },
+    Assign(usize, TypedExpr),
+    FuncCall(usize),
 }

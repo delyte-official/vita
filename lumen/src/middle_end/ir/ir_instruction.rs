@@ -13,4 +13,5 @@ pub enum Instruction {
         then_branch: Vec<Instruction>,
         else_branch: Option<Vec<Instruction>>,
     },
+    Assign(usize, Value),
 }

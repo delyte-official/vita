@@ -49,6 +49,15 @@ fn lower_stmt(stmt: TypedStmt, instructions: &mut Vec<Instruction>, next_temp: &
                 else_branch: else_instructions,
             });
         }
+        TypedStmt::Assign(slot, expr) => {
+            let value = lower_expr(expr, instructions, next_temp);
+            instructions.push(Instruction::Assign(slot, value));
+        }
+        TypedStmt::FuncCall(func_index) => {
+            let dest = *next_temp;
+            *next_temp += 1;
+            instructions.push(Instruction::Call(dest, func_index));
+        }
     }
 }
 

@@ -34,11 +34,8 @@ impl Binder {
         self.symbols.get(name)?.last()
     }
 
-    fn define(&mut self, name: String, ty: String) -> Result<usize, String> {
+    fn define(&mut self, name: String, ty: String, mutable: bool) -> Result<usize, String> {
         let stack = self.symbols.entry(name.clone()).or_default();
-        if let Some(top) = stack.last() && top.scope_depth == self.current_depth {
-            return Err(format!("variable '{}' is already defined in the current scope", name));
-        }
         let slot = self.next_slot;
         self.next_slot += 1;
 
@@ -47,6 +44,7 @@ impl Binder {
             scope_depth: self.current_depth,
             ty,
             slot,
+            mutable,
         });
         Ok(slot)
     }
@@ -61,6 +59,7 @@ impl Binder {
             scope_depth: self.current_depth,
             ty: "i32".into(),
             slot: index,
+            mutable: false,
         });
         Ok(())
     }
@@ -90,12 +89,12 @@ impl Binder {
             Stmt::Return(expr) => Ok(BoundedStmt::Return(self.bind_expr(expr)?)),
             Stmt::VarDecl(name, expr) => {
                 let bound_expr = self.bind_expr(expr)?;
-                let slot = self.define(name.clone(), "i32".into())?;
+                let slot = self.define(name.clone(), "i32".into(), true)?;
                 Ok(BoundedStmt::VarDecl(slot, bound_expr))
             }
             Stmt::ValDecl(name, expr) => {
                 let bound_expr = self.bind_expr(expr)?;
-                let slot = self.define(name.clone(), "i32".into())?;
+                let slot = self.define(name.clone(), "i32".into(), false)?;
                 Ok(BoundedStmt::ValDecl(slot, bound_expr))
             }
             Stmt::If { condition, then_branch, elif_branches, else_branch } => {
@@ -124,6 +123,20 @@ impl Binder {
                     elif_branches: bound_elif_branches,
                     else_branch: bound_else_branch,
                 })
+            }
+            Stmt::Assign(name, expr) => {
+                let bound_expr = self.bind_expr(expr)?;
+                let symbol = self.lookup(name)
+                    .ok_or_else(|| format!("undeclared variable '{}'", name))?;
+                if !symbol.mutable {
+                    return Err(format!("cannot assign to '{}': it was declared with 'val' and is not mutable", name));
+                }
+                Ok(BoundedStmt::Assign(symbol.slot, bound_expr))
+            }
+            Stmt::FuncCall { name } => {
+                let symbol = self.lookup(name)
+                    .ok_or_else(|| format!("undeclared function '{}'", name))?;
+                Ok(BoundedStmt::FuncCall(symbol.slot))
             }
         }
     }

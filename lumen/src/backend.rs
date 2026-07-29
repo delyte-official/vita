@@ -125,6 +125,10 @@ fn compile_instructions<'ctx>(
 
                 builder.position_at_end(merge_bb);
             }
+            Instruction::Assign(slot, v) => {
+                let value = resolve(*v, temps, locals, i32_type);
+                locals[*slot] = Some(value);
+            }
         }
     }
     Ok(false)

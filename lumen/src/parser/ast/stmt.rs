@@ -11,4 +11,6 @@ pub enum Stmt {
         elif_branches: Option<Vec<(Expr, Vec<Stmt>)>>,
         else_branch: Option<Vec<Stmt>>,
     },
+    Assign(String, Expr),
+    FuncCall{ name: String },
 }

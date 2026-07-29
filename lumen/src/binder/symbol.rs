@@ -4,4 +4,5 @@ pub struct Symbol {
     pub slot: usize,
     pub scope_depth: usize,
     pub ty: String,
+    pub mutable: bool,
 }

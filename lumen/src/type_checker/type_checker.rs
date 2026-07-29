@@ -52,6 +52,8 @@ fn stmt_always_returns(stmt: &BoundedStmt) -> bool {
 
             then_ok && elifs_ok && else_ok
         }
+        BoundedStmt::Assign(_, _) => false,
+        BoundedStmt::FuncCall(_) => false,
     }
 }
 
@@ -117,6 +119,14 @@ fn check_stmt(stmt: &BoundedStmt, return_type: ExprType, func_name: &str) -> Res
                 else_branch: typed_else,
             })
         }
+        BoundedStmt::Assign(slot, expr) => {
+            let found_type = infer(expr);
+            if !matches!((return_type, found_type), (ExprType::I32, ExprType::I32)) {
+                return Err(format!("assignment type doesn't match function '{}' declared return type", func_name));
+            }
+            Ok(TypedStmt::Assign(*slot, check_expr(expr)?))
+        }
+        BoundedStmt::FuncCall(slot) => Ok(TypedStmt::FuncCall(*slot)),
     }
 }
 

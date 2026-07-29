@@ -11,4 +11,6 @@ pub enum BoundedStmt {
         elif_branches: Option<Vec<(BoundedExpr, Vec<BoundedStmt>)>>,
         else_branch: Option<Vec<BoundedStmt>>,
     },
+    Assign(usize, BoundedExpr),
+    FuncCall(usize),
 }
