@@ -8,6 +8,11 @@ pub enum Instruction {
     VarDecl(usize, Value),
     Return(Value),
     Call(usize, usize),
+    MakeStruct {
+        dest: usize,
+        name: &'static str,
+        fields: Vec<Value>,
+    },
     If {
         condition: Value,
         then_branch: Vec<Instruction>,

@@ -2,7 +2,7 @@ use super::BinaryOp;
 
 #[derive(Debug)]
 pub enum Expr {
-    Int(i64),
+    Literal(String),
     Binary {
         op: BinaryOp,
         left: Box<Expr>,

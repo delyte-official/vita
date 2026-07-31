@@ -8,17 +8,37 @@ use inkwell::passes::PassBuilderOptions;
 use inkwell::targets::{
     CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
 };
-use inkwell::types::IntType;
-use inkwell::values::{FunctionValue, IntValue};
+use inkwell::types::{IntType, StructType};
+use inkwell::values::{FunctionValue, IntValue, StructValue};
 use inkwell::{IntPredicate, OptimizationLevel};
 
 use crate::middle_end::{IRProgram, Instruction, Value};
 
-fn resolve<'ctx>(v: Value, temps: &[Option<IntValue<'ctx>>], locals: &[Option<IntValue<'ctx>>], i32_type: IntType<'ctx>) -> IntValue<'ctx> {
+#[derive(Clone, Copy)]
+enum RtValue<'ctx> {
+    Int(IntValue<'ctx>),
+    Struct(StructValue<'ctx>),
+}
+
+fn struct_type_for<'ctx>(context: &'ctx Context, name: &str, i32_type: IntType<'ctx>) -> Option<StructType<'ctx>> {
+    match name {
+        "Rectangle" => Some(context.struct_type(&[i32_type.into(), i32_type.into()], false)),
+        _ => None,
+    }
+}
+
+fn resolve<'ctx>(v: Value, temps: &[Option<RtValue<'ctx>>], locals: &[Option<RtValue<'ctx>>], i32_type: IntType<'ctx>) -> RtValue<'ctx> {
     match v {
-        Value::Const(n) => i32_type.const_int(n as u64, true),
+        Value::Const(n) => RtValue::Int(i32_type.const_int(n as u64, true)),
         Value::Temp(i) => temps[i].expect("temp used before being computed"),
         Value::Var(slot) => locals[slot].expect("variable used before being declared"),
+    }
+}
+
+fn resolve_int<'ctx>(v: Value, temps: &[Option<RtValue<'ctx>>], locals: &[Option<RtValue<'ctx>>], i32_type: IntType<'ctx>) -> Result<IntValue<'ctx>, String> {
+    match resolve(v, temps, locals, i32_type) {
+        RtValue::Int(i) => Ok(i),
+        RtValue::Struct(_) => Err("expected an integer value, found a struct".to_string()),
     }
 }
 
@@ -30,35 +50,35 @@ fn compile_instructions<'ctx>(
     program: &IRProgram,
     function: FunctionValue<'ctx>,
     instructions: &[Instruction],
-    temps: &mut [Option<IntValue<'ctx>>],
-    locals: &mut [Option<IntValue<'ctx>>],
+    temps: &mut [Option<RtValue<'ctx>>],
+    locals: &mut [Option<RtValue<'ctx>>],
     i32_type: IntType<'ctx>,
 ) -> Result<bool, String> {
     for instr in instructions {
         match instr {
             Instruction::Add(dest, l, r) => {
                 let result = builder
-                    .build_int_add(resolve(*l, temps, locals, i32_type), resolve(*r, temps, locals, i32_type), "addtmp")
+                    .build_int_add(resolve_int(*l, temps, locals, i32_type)?, resolve_int(*r, temps, locals, i32_type)?, "addtmp")
                     .map_err(|e| format!("codegen error: {e}"))?;
-                temps[*dest] = Some(result);
+                temps[*dest] = Some(RtValue::Int(result));
             }
             Instruction::Sub(dest, l, r) => {
                 let result = builder
-                    .build_int_sub(resolve(*l, temps, locals, i32_type), resolve(*r, temps, locals, i32_type), "subtmp")
+                    .build_int_sub(resolve_int(*l, temps, locals, i32_type)?, resolve_int(*r, temps, locals, i32_type)?, "subtmp")
                     .map_err(|e| format!("codegen error: {e}"))?;
-                temps[*dest] = Some(result);
+                temps[*dest] = Some(RtValue::Int(result));
             }
             Instruction::Mul(dest, l, r) => {
                 let result = builder
-                    .build_int_mul(resolve(*l, temps, locals, i32_type), resolve(*r, temps, locals, i32_type), "multmp")
+                    .build_int_mul(resolve_int(*l, temps, locals, i32_type)?, resolve_int(*r, temps, locals, i32_type)?, "multmp")
                     .map_err(|e| format!("codegen error: {e}"))?;
-                temps[*dest] = Some(result);
+                temps[*dest] = Some(RtValue::Int(result));
             }
             Instruction::Div(dest, l, r) => {
                 let result = builder
-                    .build_int_signed_div(resolve(*l, temps, locals, i32_type), resolve(*r, temps, locals, i32_type), "divtmp")
+                    .build_int_signed_div(resolve_int(*l, temps, locals, i32_type)?, resolve_int(*r, temps, locals, i32_type)?, "divtmp")
                     .map_err(|e| format!("codegen error: {e}"))?;
-                temps[*dest] = Some(result);
+                temps[*dest] = Some(RtValue::Int(result));
             }
             Instruction::VarDecl(slot, v) => {
                 let value = resolve(*v, temps, locals, i32_type);
@@ -75,17 +95,30 @@ fn compile_instructions<'ctx>(
                     .left()
                     .ok_or("expected call to return a value")?
                     .into_int_value();
-                temps[*dest] = Some(call_result);
+                temps[*dest] = Some(RtValue::Int(call_result));
+            }
+            Instruction::MakeStruct { dest, name, fields } => {
+                let struct_type = struct_type_for(context, name, i32_type)
+                    .ok_or_else(|| format!("unknown struct type '{name}'"))?;
+                let mut aggregate = struct_type.get_undef();
+                for (index, field) in fields.iter().enumerate() {
+                    let field_value = resolve_int(*field, temps, locals, i32_type)?;
+                    aggregate = builder
+                        .build_insert_value(aggregate, field_value, index as u32, "structinit")
+                        .map_err(|e| format!("codegen error: {e}"))?
+                        .into_struct_value();
+                }
+                temps[*dest] = Some(RtValue::Struct(aggregate));
             }
             Instruction::Return(v) => {
-                let value = resolve(*v, temps, locals, i32_type);
+                let value = resolve_int(*v, temps, locals, i32_type)?;
                 builder
                     .build_return(Some(&value))
                     .map_err(|e| format!("codegen error: {e}"))?;
                 return Ok(true);
             }
             Instruction::If { condition, then_branch, else_branch } => {
-                let cond_value = resolve(*condition, temps, locals, i32_type);
+                let cond_value = resolve_int(*condition, temps, locals, i32_type)?;
                 let zero = i32_type.const_int(0, false);
                 let cond_bool = builder
                     .build_int_compare(IntPredicate::NE, cond_value, zero, "ifcond")
@@ -151,8 +184,8 @@ pub fn compile_to_executable(program: &IRProgram, output_path: &Path) -> Result<
         let entry_block = context.append_basic_block(function, "entry");
         builder.position_at_end(entry_block);
 
-        let mut temps: Vec<Option<IntValue>> = vec![None; func.temp_count];
-        let mut locals: Vec<Option<IntValue>> = vec![None; func.local_count];
+        let mut temps: Vec<Option<RtValue>> = vec![None; func.temp_count];
+        let mut locals: Vec<Option<RtValue>> = vec![None; func.local_count];
 
         compile_instructions(&context, &module, &builder, program, function, &func.instructions, &mut temps, &mut locals, i32_type)?;
     }

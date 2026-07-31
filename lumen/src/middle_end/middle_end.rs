@@ -91,7 +91,28 @@ fn lower_if_chain(
 
 fn lower_expr(expr: TypedExpr, instructions: &mut Vec<Instruction>, next_temp: &mut usize) -> Value {
     match expr {
-        TypedExpr::Int(n) => Value::Const(n),
+        TypedExpr::Literal { value, ty } => match ty {
+            ExprType::I32 => {
+                let n: i64 = value
+                    .parse()
+                    .expect("literal was already validated as i32 by the type checker");
+                Value::Const(n)
+            }
+            ExprType::Bool => Value::Const(if value == "true" { 1 } else { 0 }),
+            ExprType::Struct(_) => unreachable!(
+                "a plain Literal never carries a Struct type - struct values come from StructLiteral"
+            ),
+        },
+        TypedExpr::StructLiteral { name, fields } => {
+            let field_values: Vec<Value> = fields
+                .into_iter()
+                .map(|field| lower_expr(field, instructions, next_temp))
+                .collect();
+            let dest = *next_temp;
+            *next_temp += 1;
+            instructions.push(Instruction::MakeStruct { dest, name, fields: field_values });
+            Value::Temp(dest)
+        }
         TypedExpr::Var(slot) => Value::Var(slot),
         TypedExpr::Binary { op, left, right, .. } => {
             let left_val = lower_expr(*left, instructions, next_temp);

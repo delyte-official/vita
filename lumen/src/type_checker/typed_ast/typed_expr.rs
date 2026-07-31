@@ -2,7 +2,14 @@ use crate::{parser::BinaryOp, type_checker::ExprType};
 
 #[derive(Debug)]
 pub enum TypedExpr {
-    Int(i64),
+    Literal {
+        value: String,
+        ty: ExprType,
+    },
+    StructLiteral {
+        name: &'static str,
+        fields: Vec<TypedExpr>,
+    },
     Binary {
         op: BinaryOp,
         left: Box<TypedExpr>,
@@ -16,7 +23,8 @@ pub enum TypedExpr {
 impl TypedExpr {
     pub fn ty(&self) -> ExprType {
         match self {
-            TypedExpr::Int(_) => ExprType::I32,
+            TypedExpr::Literal { ty, .. } => *ty,
+            TypedExpr::StructLiteral { name, .. } => ExprType::Struct(name),
             TypedExpr::Binary { ty, .. } => *ty,
             TypedExpr::Var(_) => ExprType::I32,
             TypedExpr::FuncCall(_) => ExprType::I32,

@@ -26,6 +26,10 @@ impl<'a> Parser<'a> {
         self.peek().map(|t| t.kind.clone())
     }
 
+    fn peek_line_col(&self) -> (usize, usize) {
+        self.peek().map_or((0, 0), |t| (t.line, t.col))
+    }
+
     fn expect(&mut self, expected: TokenKind) -> Result<(), String> {
         match self.advance()? {
             Some(tok) if tok.kind == expected => Ok(()),
@@ -44,29 +48,42 @@ impl<'a> Parser<'a> {
         Ok(Stmt::Return(expr))
     }
 
+    fn parse_identifier(&mut self) -> Result<String, String> {
+        match self.advance()? {
+            Some(Token { kind: TokenKind::Literal(value), .. }) if self.lexer.is_identifier(&value) => Ok(value),
+            Some(Token { kind: TokenKind::Literal(value), line, col }) => Err(format!(
+                "expected an identifier, found literal '{value}' (line {line}, column {col})"
+            )),
+            Some(tok) => Err(format!(
+                "expected an identifier, found {:?} (line {}, column {})",
+                tok.kind, tok.line, tok.col
+            )),
+            None => Err("expected an identifier, found end of file".to_string()),
+        }
+    }
+
     fn parse_decl_stmt(&mut self, is_mutable: bool) -> Result<Stmt, String> {
         if is_mutable {
             self.expect(TokenKind::Var)?;
         } else {
             self.expect(TokenKind::Val)?;
         }
-        let name = match self.advance()? {
-            Some(Token { kind: TokenKind::Identifier(name), .. }) => name,
-            Some(tok) => {
-                return Err(format!(
-                    "expected an identifier, found {:?} (line {}, column {})",
-                    tok.kind, tok.line, tok.col
-                ))
-            }
-            None => return Err("expected an identifier, found end of file".to_string()),
+        let name = self.parse_identifier()?;
+
+        let type_annotation = if self.peek_kind() == Some(TokenKind::Colon) {
+            self.advance()?;
+            Some(self.parse_identifier()?)
+        } else {
+            None
         };
+
         self.expect(TokenKind::Equal)?;
         let expr = self.parse_expr(0)?;
         self.expect(TokenKind::Semicolon)?;
         if is_mutable {
-            Ok(Stmt::VarDecl(name, expr))
+            Ok(Stmt::VarDecl(name, type_annotation, expr))
         } else {
-            Ok(Stmt::ValDecl(name, expr))
+            Ok(Stmt::ValDecl(name, type_annotation, expr))
         }
     }
 
@@ -89,18 +106,24 @@ impl<'a> Parser<'a> {
             Some(TokenKind::Var) => self.parse_decl_stmt(true),
             Some(TokenKind::Val) => self.parse_decl_stmt(false),
             Some(TokenKind::If) => self.parse_if_stmt(allow_block),
-            Some(TokenKind::Identifier(name)) => {
+            Some(TokenKind::Literal(value)) => {
+                let (lit_line, lit_col) = self.peek_line_col();
+                if !self.lexer.is_identifier(&value) {
+                    return Err(format!(
+                        "expected a statement, found literal '{value}' (line {lit_line}, column {lit_col})"
+                    ));
+                }
                 self.advance()?;
                 if self.peek_kind() == Some(TokenKind::Equal) {
                     self.advance()?;
                     let expr = self.parse_expr(0)?;
                     self.expect(TokenKind::Semicolon)?;
-                    Ok(Stmt::Assign(name, expr))
+                    Ok(Stmt::Assign(value, expr))
                 } else if self.peek_kind() == Some(TokenKind::LParen) {
                     self.advance()?;
                     self.expect(TokenKind::RParen)?;
                     self.expect(TokenKind::Semicolon)?;
-                    Ok(Stmt::FuncCall { name })
+                    Ok(Stmt::FuncCall { name: value })
                 } else {
                     Err(format!(
                         "expected '=' or '(', found {:?} (line {}, column {})",
@@ -163,21 +186,24 @@ impl<'a> Parser<'a> {
 
     fn parse_term(&mut self) -> Result<Expr, String> {
         match self.advance()? {
-            Some(Token { kind: TokenKind::Int(n), .. }) => Ok(Expr::Int(n)),
-            Some(Token { kind: TokenKind::Identifier(name), .. }) => {
-                if let Some(Token { kind: TokenKind::LParen, .. }) = self.peek() {
-                    self.advance()?;
-                    self.expect(TokenKind::RParen)?;
-                    Ok(Expr::FuncCall { name })
+            Some(Token { kind: TokenKind::Literal(text), line, col }) => {
+                if self.lexer.is_identifier(&text) {
+                    if let Some(Token { kind: TokenKind::LParen, .. }) = self.peek() {
+                        self.advance()?;
+                        self.expect(TokenKind::RParen)?;
+                        Ok(Expr::FuncCall { name: text })
+                    } else {
+                        Ok(Expr::Var(text))
+                    }
                 } else {
-                    Ok(Expr::Var(name))
+                    Ok(Expr::Literal(text))
                 }
             }
             Some(tok) => Err(format!(
-                "expected a number, found {:?} (line {}, column {})",
+                "expected an expression, found {:?} (line {}, column {})",
                 tok.kind, tok.line, tok.col
             )),
-            None => Err("expected a number, found end of file".to_string()),
+            None => Err("expected an expression, found end of file".to_string()),
         }
     }
 
@@ -198,7 +224,12 @@ pub fn parse(source: &str) -> Result<Program, String> {
     let mut functions = vec![];
     loop {
         let name = match parser.advance()? {
-            Some(Token { kind: TokenKind::Identifier(name), .. }) => name,
+            Some(Token { kind: TokenKind::Literal(name), .. }) if parser.lexer.is_identifier(&name) => name,
+            Some(Token { kind: TokenKind::Literal(name), line, col }) => {
+                return Err(format!(
+                    "expected a function name, found literal '{name}' (line {line}, column {col})"
+                ))
+            }
             Some(tok) => {
                 return Err(format!(
                     "expected a function name, found {:?} (line {}, column {})",

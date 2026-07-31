@@ -3,8 +3,8 @@ use crate::binder::BoundedExpr;
 #[derive(Debug)]
 pub enum BoundedStmt {
     Return(BoundedExpr),
-    VarDecl(usize, BoundedExpr),
-    ValDecl(usize, BoundedExpr),
+    VarDecl(usize, Option<String>, BoundedExpr),
+    ValDecl(usize, Option<String>, BoundedExpr),
     If {
         condition: BoundedExpr,
         then_branch: Vec<BoundedStmt>,

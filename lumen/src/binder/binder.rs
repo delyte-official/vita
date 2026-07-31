@@ -87,15 +87,15 @@ impl Binder {
     fn bind_stmt(&mut self, stmt: &Stmt) -> Result<BoundedStmt, String> {
         match stmt {
             Stmt::Return(expr) => Ok(BoundedStmt::Return(self.bind_expr(expr)?)),
-            Stmt::VarDecl(name, expr) => {
+            Stmt::VarDecl(name, type_annotation, expr) => {
                 let bound_expr = self.bind_expr(expr)?;
                 let slot = self.define(name.clone(), "i32".into(), true)?;
-                Ok(BoundedStmt::VarDecl(slot, bound_expr))
+                Ok(BoundedStmt::VarDecl(slot, type_annotation.clone(), bound_expr))
             }
-            Stmt::ValDecl(name, expr) => {
+            Stmt::ValDecl(name, type_annotation, expr) => {
                 let bound_expr = self.bind_expr(expr)?;
                 let slot = self.define(name.clone(), "i32".into(), false)?;
-                Ok(BoundedStmt::ValDecl(slot, bound_expr))
+                Ok(BoundedStmt::ValDecl(slot, type_annotation.clone(), bound_expr))
             }
             Stmt::If { condition, then_branch, elif_branches, else_branch } => {
                 let bound_condition = self.bind_expr(condition)?;
@@ -143,11 +143,12 @@ impl Binder {
 
     fn bind_expr(&self, expr: &Expr) -> Result<BoundedExpr, String> {
         match expr {
-            Expr::Int(n) => Ok(BoundedExpr::Int(*n)),
+            Expr::Literal(value) => Ok(BoundedExpr::Literal(value.clone())),
             Expr::Var(name) => {
-                let symbol = self.lookup(name)
-                .ok_or_else(|| format!("undeclared variable '{}'", name))?;
-                Ok(BoundedExpr::Var(symbol.slot))
+                match self.lookup(name) {
+                    Some(symbol) => Ok(BoundedExpr::Var(symbol.slot)),
+                    None => Ok(BoundedExpr::UnresolvedName(name.clone())),
+                }
             }
             Expr::FuncCall { name } => {
                 let symbol = self.lookup(name)

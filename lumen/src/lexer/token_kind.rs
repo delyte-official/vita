@@ -1,12 +1,13 @@
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
     Return,
-    Int(i64),
+    Literal(String),
     LBrace,
     RBrace,
     LParen,
     RParen,
     Semicolon,
+    Dot,
     Plus,
     Minus,
     Star,
@@ -16,6 +17,5 @@ pub enum TokenKind {
     If,
     Elif,
     Else,
-    Identifier(String),
     Equal,
 }

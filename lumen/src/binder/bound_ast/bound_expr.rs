@@ -2,7 +2,8 @@ use crate::parser::BinaryOp;
 
 #[derive(Debug)]
 pub enum BoundedExpr {
-    Int(i64),
+    Literal(String),
+    UnresolvedName(String),
     Binary {
         op: BinaryOp,
         left: Box<BoundedExpr>,

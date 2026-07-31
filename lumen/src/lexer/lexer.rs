@@ -34,21 +34,21 @@ impl<'a> Lexer<'a> {
 
     pub fn next_token(&mut self) -> Result<Option<Token>, String> {
         loop {
-            match self.chars.peek() {
+            match self.chars.peek().copied() {
                 None => return Ok(None),
                 Some(c) if c.is_whitespace() => {
                     self.bump();
                 }
                 Some('/') => {
                     self.bump();
-                    if let Some('/') = self.chars.peek() {
+                    if let Some('/') = self.chars.peek().copied() {
                         self.bump();
                     } else {
-                        return Ok(Some(self.single_char_token(TokenKind::Minus)));
+                        return Ok(Some(self.single_char_token(TokenKind::Slash)));
                     }
                     // skip the comment (whole line)
-                    while let Some(c) = self.chars.peek() {
-                        if *c == '\n' {
+                    while let Some(c) = self.chars.peek().copied() {
+                        if c == '\n' {
                             self.bump();
                             break;
                         }
@@ -56,54 +56,76 @@ impl<'a> Lexer<'a> {
                     }
                     continue;
                 }
+                // handle literals
+                Some(c) if self.is_literal_start(c) => {
+                    let (line, col) = (self.line, self.col);
+                    let mut text = String::new();
+                    // consume first char
+                    text.push(c);
+                    self.bump();
+                    // state
+                    let mut in_tag = c.is_ascii_alphabetic() || c == '_';
+                    let mut last_was_op = self.is_operator_allowed_in_literal(c);
+                    while let Some(next_c) = self.chars.peek().copied() {
+                        if in_tag {
+                            // in trailing tag, only alpha + _
+                            if next_c.is_ascii_alphabetic() || next_c == '_' {
+                                text.push(next_c);
+                                self.bump();
+                            } else {
+                                break;
+                            }
+                        } else {
+                            // still in body
+                            if next_c.is_ascii_digit() {
+                                text.push(next_c);
+                                self.bump();
+                                last_was_op = false;
+                            } else if self.is_operator_allowed_in_literal(next_c) {
+                                // prevent following operators
+                                if last_was_op {
+                                    break;
+                                }
+                                let mut cloned_chars = self.chars.clone();
+                                cloned_chars.next(); // skip the current peeked operator
+                                let follows_operator = cloned_chars.peek();
+                                let is_followed_by_valid = match follows_operator {
+                                    Some(following_char) => following_char.is_ascii_digit(),
+                                    None => false,
+                                };
+
+                                if !is_followed_by_valid { // not accepted
+                                    break;
+                                }
+                                text.push(next_c);
+                                self.bump();
+                                last_was_op = true;
+                            } else if next_c.is_ascii_alphabetic() {
+                                // letter => tag
+                                in_tag = true;
+                                text.push(next_c);
+                                self.bump();
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    return self.match_keyword_or_literal(text, line, col);
+                }
                 Some('{') => return Ok(Some(self.single_char_token(TokenKind::LBrace))),
                 Some('}') => return Ok(Some(self.single_char_token(TokenKind::RBrace))),
+                Some('.') => return Ok(Some(self.single_char_token(TokenKind::Dot))),
                 Some(';') => return Ok(Some(self.single_char_token(TokenKind::Semicolon))),
+                Some(':') => return Ok(Some(self.single_char_token(TokenKind::Colon))),
                 Some('+') => return Ok(Some(self.single_char_token(TokenKind::Plus))),
                 Some('-') => return Ok(Some(self.single_char_token(TokenKind::Minus))),
                 Some('*') => return Ok(Some(self.single_char_token(TokenKind::Star))),
                 Some('=') => return Ok(Some(self.single_char_token(TokenKind::Equal))),
                 Some('(') => return Ok(Some(self.single_char_token(TokenKind::LParen))),
                 Some(')') => return Ok(Some(self.single_char_token(TokenKind::RParen))),
-                Some(c) if c.is_ascii_digit() => {
-                    let (line, col) = (self.line, self.col);
-                    let mut text = String::new();
-                    while let Some(c) = self.chars.peek() {
-                        if c.is_ascii_digit() {
-                            text.push(*c);
-                            self.bump();
-                        } else {
-                            break;
-                        }
-                    }
-                    let value: i64 = text.parse().unwrap();
-                    return Ok(Some(Token { kind: TokenKind::Int(value), line, col }));
-                }
-                Some(c) if c.is_alphabetic() || *c == '_' => {
-                    let (line, col) = (self.line, self.col);
-                    let mut word = String::new();
-                    while let Some(c) = self.chars.peek() {
-                        if c.is_alphanumeric() || *c == '_' {
-                            word.push(*c);
-                            self.bump();
-                        } else {
-                            break;
-                        }
-                    }
-                    let kind = match word.as_str() {
-                        "return" => TokenKind::Return,
-                        "var" => TokenKind::Var,
-                        "val" => TokenKind::Val,
-                        "if" => TokenKind::If,
-                        "elif" => TokenKind::Elif,
-                        "else" => TokenKind::Else,
-                        _ => TokenKind::Identifier(word.clone()),
-                    };
-                    return Ok(Some(Token { kind, line, col }));
-                }
                 Some(c) => {
                     let (line, col) = (self.line, self.col);
-                    let bad = *c;
+                    let bad = c;
                     self.bump();
                     return Err(format!("unexpected character '{bad}' (line {line}, column {col})"));
                 }
@@ -115,5 +137,52 @@ impl<'a> Lexer<'a> {
         let (line, col) = (self.line, self.col);
         self.bump();
         Token { kind, line, col }
+    }
+
+    fn is_literal_start(&self, c: char) -> bool {
+        if c.is_ascii_alphanumeric() || c == '_' {
+            return true;
+        }
+        if self.is_operator_allowed_in_literal(c) {
+            return matches!(self.peek_second(), Some(next) if next.is_ascii_digit());
+        }
+        false
+    }
+
+    fn peek_second(&self) -> Option<char> {
+        let mut cloned = self.chars.clone();
+        cloned.next();
+        cloned.peek().copied()
+    }
+
+    fn is_operator_allowed_in_literal(&self, c: char) -> bool {
+        c == '.' || c == ':' // hand picked operators allowed
+    }
+
+    fn match_keyword_or_literal(
+        &self,
+        text: String,
+        line: usize,
+        col: usize,
+    ) -> Result<Option<Token>, String> {
+        let kind = match text.as_str() {
+            "return" => TokenKind::Return,
+            "var" => TokenKind::Var,
+            "val" => TokenKind::Val,
+            "if" => TokenKind::If,
+            "elif" => TokenKind::Elif,
+            "else" => TokenKind::Else,
+            _ => TokenKind::Literal(text.clone()),
+        };
+        Ok(Some(Token { kind, line, col }))
+    }
+
+    pub fn is_identifier(&self, text: &str) -> bool {
+        let mut chars = text.chars();
+        match chars.next() {
+            Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
+            _ => return false,
+        }
+        chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
     }
 }
