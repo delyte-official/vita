@@ -186,7 +186,7 @@ impl<'a> Parser<'a> {
 
     fn parse_term(&mut self) -> Result<Expr, String> {
         match self.advance()? {
-            Some(Token { kind: TokenKind::Literal(text), line, col }) => {
+            Some(Token { kind: TokenKind::Literal(text), .. }) => {
                 if self.lexer.is_identifier(&text) {
                     if let Some(Token { kind: TokenKind::LParen, .. }) = self.peek() {
                         self.advance()?;

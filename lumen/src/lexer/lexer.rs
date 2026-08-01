@@ -4,10 +4,16 @@ use std::str::Chars;
 use super::token_kind::TokenKind;
 use super::token::Token;
 
+enum LexerMode {
+    ExprStart,
+    AfterValue,
+}
+
 pub struct Lexer<'a> {
     chars: Peekable<Chars<'a>>,
     line: usize,
     col: usize,
+    mode: LexerMode,
 }
 
 impl<'a> Lexer<'a> {
@@ -16,6 +22,7 @@ impl<'a> Lexer<'a> {
             chars: source.chars().peekable(),
             line: 1,
             col: 1,
+            mode: LexerMode::ExprStart,
         }
     }
 
@@ -40,21 +47,28 @@ impl<'a> Lexer<'a> {
                     self.bump();
                 }
                 Some('/') => {
-                    self.bump();
-                    if let Some('/') = self.chars.peek().copied() {
+                    let mut lookahead = self.chars.clone();
+                    lookahead.next();
+                    if let Some('/') = lookahead.peek() {
+                        self.bump(); // consume both slashes
                         self.bump();
-                    } else {
-                        return Ok(Some(self.single_char_token(TokenKind::Slash)));
-                    }
-                    // skip the comment (whole line)
-                    while let Some(c) = self.chars.peek().copied() {
-                        if c == '\n' {
+                        // consume rest of line
+                        while let Some(c) = self.chars.peek().copied() {
+                            if c == '\n' {
+                                self.bump();
+                                break;
+                            }
                             self.bump();
-                            break;
                         }
-                        self.bump();
+                        continue;
                     }
-                    continue;
+
+                    // if we're expecting an expression, then its a regex
+                    if matches!(self.mode, LexerMode::ExprStart) {
+                        return self.lex_regex();
+                    }
+
+                    return Ok(Some(self.single_char_token(TokenKind::Slash)));
                 }
                 // handle literals
                 Some(c) if self.is_literal_start(c) => {
@@ -115,8 +129,8 @@ impl<'a> Lexer<'a> {
                 Some('{') => return Ok(Some(self.single_char_token(TokenKind::LBrace))),
                 Some('}') => return Ok(Some(self.single_char_token(TokenKind::RBrace))),
                 Some('.') => return Ok(Some(self.single_char_token(TokenKind::Dot))),
-                Some(';') => return Ok(Some(self.single_char_token(TokenKind::Semicolon))),
                 Some(':') => return Ok(Some(self.single_char_token(TokenKind::Colon))),
+                Some(';') => return Ok(Some(self.single_char_token(TokenKind::Semicolon))),
                 Some('+') => return Ok(Some(self.single_char_token(TokenKind::Plus))),
                 Some('-') => return Ok(Some(self.single_char_token(TokenKind::Minus))),
                 Some('*') => return Ok(Some(self.single_char_token(TokenKind::Star))),
@@ -136,7 +150,65 @@ impl<'a> Lexer<'a> {
     fn single_char_token(&mut self, kind: TokenKind) -> Token {
         let (line, col) = (self.line, self.col);
         self.bump();
+        self.finish(kind, line, col)
+    }
+
+    fn finish(&mut self, kind: TokenKind, line: usize, col: usize) -> Token {
+        self.mode = match &kind {
+            TokenKind::Literal(_) | TokenKind::RParen => LexerMode::AfterValue,
+            _ => LexerMode::ExprStart,
+        };
         Token { kind, line, col }
+    }
+
+    fn lex_regex(&mut self) -> Result<Option<Token>, String> {
+        let (line, col) = (self.line, self.col);
+        let mut raw = String::new();
+        raw.push('/');
+        self.bump();
+
+        loop {
+            match self.chars.peek().copied() {
+                None | Some('\n') => {
+                    return Err(format!("unterminated regex literal (line {line}, column {col})"));
+                }
+                // escaping
+                Some('\\') => {
+                    raw.push('\\');
+                    self.bump();
+                    match self.chars.peek().copied() {
+                        Some(escaped) => {
+                            raw.push(escaped);
+                            self.bump();
+                        }
+                        None => {
+                            return Err(format!("unterminated regex literal (line {line}, column {col})"));
+                        }
+                    }
+                }
+                // end of regex
+                Some('/') => {
+                    raw.push('/');
+                    self.bump();
+                    break;
+                }
+                Some(c) => {
+                    raw.push(c);
+                    self.bump();
+                }
+            }
+        }
+
+        while let Some(c) = self.chars.peek().copied() {
+            if c.is_ascii_alphabetic() {
+                raw.push(c);
+                self.bump();
+            } else {
+                break;
+            }
+        }
+
+        Ok(Some(self.finish(TokenKind::Literal(raw), line, col)))
     }
 
     fn is_literal_start(&self, c: char) -> bool {
@@ -160,7 +232,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn match_keyword_or_literal(
-        &self,
+        &mut self,
         text: String,
         line: usize,
         col: usize,
@@ -172,9 +244,9 @@ impl<'a> Lexer<'a> {
             "if" => TokenKind::If,
             "elif" => TokenKind::Elif,
             "else" => TokenKind::Else,
-            _ => TokenKind::Literal(text.clone()),
+            _ => TokenKind::Literal(text),
         };
-        Ok(Some(Token { kind, line, col }))
+        Ok(Some(self.finish(kind, line, col)))
     }
 
     pub fn is_identifier(&self, text: &str) -> bool {

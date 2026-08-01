@@ -20,11 +20,9 @@ enum RtValue<'ctx> {
     Struct(StructValue<'ctx>),
 }
 
-fn struct_type_for<'ctx>(context: &'ctx Context, name: &str, i32_type: IntType<'ctx>) -> Option<StructType<'ctx>> {
-    match name {
-        "Rectangle" => Some(context.struct_type(&[i32_type.into(), i32_type.into()], false)),
-        _ => None,
-    }
+fn struct_type_for<'ctx>(context: &'ctx Context, field_count: usize, i32_type: IntType<'ctx>) -> StructType<'ctx> {
+    let field_types = vec![i32_type.into(); field_count];
+    context.struct_type(&field_types, false)
 }
 
 fn resolve<'ctx>(v: Value, temps: &[Option<RtValue<'ctx>>], locals: &[Option<RtValue<'ctx>>], i32_type: IntType<'ctx>) -> RtValue<'ctx> {
@@ -97,9 +95,8 @@ fn compile_instructions<'ctx>(
                     .into_int_value();
                 temps[*dest] = Some(RtValue::Int(call_result));
             }
-            Instruction::MakeStruct { dest, name, fields } => {
-                let struct_type = struct_type_for(context, name, i32_type)
-                    .ok_or_else(|| format!("unknown struct type '{name}'"))?;
+            Instruction::MakeStruct { dest, name: _, fields } => {
+                let struct_type = struct_type_for(context, fields.len(), i32_type);
                 let mut aggregate = struct_type.get_undef();
                 for (index, field) in fields.iter().enumerate() {
                     let field_value = resolve_int(*field, temps, locals, i32_type)?;

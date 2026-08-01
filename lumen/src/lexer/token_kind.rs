@@ -8,6 +8,7 @@ pub enum TokenKind {
     RParen,
     Semicolon,
     Dot,
+    Colon,
     Plus,
     Minus,
     Star,
