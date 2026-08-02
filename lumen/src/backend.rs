@@ -13,6 +13,7 @@ use inkwell::values::{FunctionValue, IntValue, PointerValue, StructValue};
 use inkwell::{AddressSpace, IntPredicate, OptimizationLevel};
 
 use crate::middle_end::{IRProgram, Instruction, Value};
+use crate::type_checker::ExprType;
 
 #[derive(Clone, Copy)]
 enum RtValue<'ctx> {
@@ -239,10 +240,12 @@ fn compile_instructions<'ctx>(
                 temps[*dest] = Some(RtValue::Str(buf));
             }
             Instruction::Return(v) => {
-                let value = resolve_int(*v, temps, locals, i32_type)?;
-                builder
-                    .build_return(Some(&value))
-                    .map_err(|e| format!("codegen error: {e}"))?;
+                match resolve(*v, temps, locals, i32_type) {
+                    RtValue::Int(i) => builder.build_return(Some(&i)),
+                    RtValue::Struct(s) => builder.build_return(Some(&s)),
+                    RtValue::Str(p) => builder.build_return(Some(&p)),
+                }
+                .map_err(|e| format!("codegen error: {e}"))?;
                 return Ok(true);
             }
             Instruction::If { condition, then_branch, else_branch } => {
@@ -311,7 +314,20 @@ pub fn compile_to_executable(program: &IRProgram, output_path: &Path) -> Result<
     module.add_function("snprintf", i32_type.fn_type(&[ptr_type.into(), i64_type.into(), ptr_type.into()], true), None);
 
     for func in &program.functions {
-        let fn_type = i32_type.fn_type(&[], false);
+        let fn_type = match func.return_type {
+            ExprType::Void => context.void_type().fn_type(&[], false),
+            // Bools and chars are both represented as plain i32 values at
+            // runtime (see lower_expr in the middle end), so they share the
+            // i32 function signature.
+            ExprType::I32 | ExprType::Bool | ExprType::Char => i32_type.fn_type(&[], false),
+            ExprType::Str => ptr_type.fn_type(&[], false),
+            ExprType::Struct(name) => {
+                return Err(format!(
+                    "function '{}' returns struct '{}', but returning a struct from a function isn't supported by codegen yet",
+                    func.name, name
+                ));
+            }
+        };
         module.add_function(&func.name, fn_type, None);
     }
 
@@ -323,7 +339,21 @@ pub fn compile_to_executable(program: &IRProgram, output_path: &Path) -> Result<
         let mut temps: Vec<Option<RtValue>> = vec![None; func.temp_count];
         let mut locals: Vec<Option<RtValue>> = vec![None; func.local_count];
 
-        compile_instructions(&context, &module, &builder, program, function, &func.instructions, &mut temps, &mut locals, i32_type)?;
+        let terminated = compile_instructions(&context, &module, &builder, program, function, &func.instructions, &mut temps, &mut locals, i32_type)?;
+
+        if !terminated {
+            if func.return_type == ExprType::Void {
+                // A void function never contains an explicit `return` (the
+                // type checker forbids it), so control always falls off the
+                // end - that's exactly where the implicit `ret void` goes.
+                builder.build_return(None).map_err(|e| format!("codegen error: {e}"))?;
+            } else {
+                return Err(format!(
+                    "internal compiler error: function '{}' should return on all paths but its generated IR doesn't - this should have been caught by the type checker",
+                    func.name
+                ));
+            }
+        }
     }
 
     if let Err(e) = module.verify() {
