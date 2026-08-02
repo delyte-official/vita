@@ -1,6 +1,7 @@
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
     Return,
+    Func,
     Literal(String),
     LiteralStartTemplate(String),
     LiteralMiddleTemplate(String),
