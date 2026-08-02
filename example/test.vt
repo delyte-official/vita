@@ -1,3 +1,4 @@
-main {
-    return 3;
+func main() {
+    val yo: int = 2;
+    return yo;
 }

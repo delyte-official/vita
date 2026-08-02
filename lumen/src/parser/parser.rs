@@ -243,30 +243,23 @@ impl<'a> Parser<'a> {
         }
         Ok(left)
     }
+
+    fn parse_function(&mut self) -> Result<Function, String> {
+        self.expect(TokenKind::Func)?;
+        let name = self.parse_identifier()?;
+        self.expect(TokenKind::LParen)?;
+        self.expect(TokenKind::RParen)?;
+        let body = self.parse_block()?;
+        Ok(Function { name, body })
+    }
 }
 
 pub fn parse(source: &str) -> Result<Program, String> {
     let mut parser = Parser::new(source)?;
 
     let mut functions = vec![];
-    loop {
-        let name = match parser.advance()? {
-            Some(Token { kind: TokenKind::Literal(name), .. }) if parser.lexer.is_identifier(&name) => name,
-            Some(Token { kind: TokenKind::Literal(name), line, col }) => {
-                return Err(format!(
-                    "expected a function name, found literal '{name}' (line {line}, column {col})"
-                ))
-            }
-            Some(tok) => {
-                return Err(format!(
-                    "expected a function name, found {:?} (line {}, column {})",
-                    tok.kind, tok.line, tok.col
-                ))
-            }
-            None => break,
-        };
-        let body = parser.parse_block()?;
-        functions.push(Function { name, body });
+    while let Some(_) = parser.peek() {
+        functions.push(parser.parse_function()?);
     }
 
     Ok(Program { functions })
