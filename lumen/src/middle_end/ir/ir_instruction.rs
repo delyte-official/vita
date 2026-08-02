@@ -13,6 +13,11 @@ pub enum Instruction {
         name: &'static str,
         fields: Vec<Value>,
     },
+    MakeString(usize, String),
+    IntToString(usize, Value),
+    BoolToString(usize, Value),
+    CharToString(usize, Value),
+    Concat(usize, Value, Value),
     If {
         condition: Value,
         then_branch: Vec<Instruction>,

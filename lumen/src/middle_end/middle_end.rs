@@ -99,6 +99,18 @@ fn lower_expr(expr: TypedExpr, instructions: &mut Vec<Instruction>, next_temp: &
                 Value::Const(n)
             }
             ExprType::Bool => Value::Const(if value == "true" { 1 } else { 0 }),
+            ExprType::Char => Value::Const(
+                value
+                    .chars()
+                    .next()
+                    .expect("char literal was already validated to have exactly one character") as i64,
+            ),
+            ExprType::Str => {
+                let dest = *next_temp;
+                *next_temp += 1;
+                instructions.push(Instruction::MakeString(dest, value));
+                Value::Temp(dest)
+            }
             ExprType::Struct(_) => unreachable!(
                 "a plain Literal never carries a Struct type - struct values come from StructLiteral"
             ),
@@ -113,6 +125,7 @@ fn lower_expr(expr: TypedExpr, instructions: &mut Vec<Instruction>, next_temp: &
             instructions.push(Instruction::MakeStruct { dest, name, fields: field_values });
             Value::Temp(dest)
         }
+        TypedExpr::Template(parts) => lower_template(parts, instructions, next_temp),
         TypedExpr::Var(slot) => Value::Var(slot),
         TypedExpr::Binary { op, left, right, .. } => {
             let left_val = lower_expr(*left, instructions, next_temp);
@@ -134,4 +147,64 @@ fn lower_expr(expr: TypedExpr, instructions: &mut Vec<Instruction>, next_temp: &
             Value::Temp(dest)
         }
     }
+}
+
+fn lower_template(parts: Vec<TypedTemplatePart>, instructions: &mut Vec<Instruction>, next_temp: &mut usize) -> Value {
+    let mut acc: Option<Value> = None;
+
+    for part in parts {
+        let piece = match part {
+            TypedTemplatePart::Text(s) => {
+                let dest = *next_temp;
+                *next_temp += 1;
+                instructions.push(Instruction::MakeString(dest, s));
+                Value::Temp(dest)
+            }
+            TypedTemplatePart::Expr(e) => {
+                let ty = e.ty();
+                let value = lower_expr(e, instructions, next_temp);
+                match ty {
+                    ExprType::Str => value,
+                    ExprType::I32 => {
+                        let dest = *next_temp;
+                        *next_temp += 1;
+                        instructions.push(Instruction::IntToString(dest, value));
+                        Value::Temp(dest)
+                    }
+                    ExprType::Bool => {
+                        let dest = *next_temp;
+                        *next_temp += 1;
+                        instructions.push(Instruction::BoolToString(dest, value));
+                        Value::Temp(dest)
+                    }
+                    ExprType::Char => {
+                        let dest = *next_temp;
+                        *next_temp += 1;
+                        instructions.push(Instruction::CharToString(dest, value));
+                        Value::Temp(dest)
+                    }
+                    ExprType::Struct(_) => unreachable!(
+                        "check_interpolatable already rejects struct values inside a template"
+                    ),
+                }
+            }
+        };
+
+        acc = Some(match acc {
+            None => piece,
+            Some(prev) => {
+                let dest = *next_temp;
+                *next_temp += 1;
+                instructions.push(Instruction::Concat(dest, prev, piece));
+                Value::Temp(dest)
+            }
+        });
+    }
+
+    acc.unwrap_or_else(|| {
+        let dest = *next_temp;
+        *next_temp += 1;
+        instructions.push(Instruction::MakeString(dest, String::new()));
+        Value::Temp(dest)
+    })
 }

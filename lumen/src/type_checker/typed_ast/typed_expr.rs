@@ -1,6 +1,12 @@
 use crate::{parser::BinaryOp, type_checker::ExprType};
 
 #[derive(Debug)]
+pub enum TypedTemplatePart {
+    Text(String),
+    Expr(TypedExpr),
+}
+
+#[derive(Debug)]
 pub enum TypedExpr {
     Literal {
         value: String,
@@ -10,6 +16,7 @@ pub enum TypedExpr {
         name: &'static str,
         fields: Vec<TypedExpr>,
     },
+    Template(Vec<TypedTemplatePart>),
     Binary {
         op: BinaryOp,
         left: Box<TypedExpr>,
@@ -25,6 +32,7 @@ impl TypedExpr {
         match self {
             TypedExpr::Literal { ty, .. } => *ty,
             TypedExpr::StructLiteral { name, .. } => ExprType::Struct(name),
+            TypedExpr::Template(_) => ExprType::Str,
             TypedExpr::Binary { ty, .. } => *ty,
             TypedExpr::Var(_) => ExprType::I32,
             TypedExpr::FuncCall(_) => ExprType::I32,

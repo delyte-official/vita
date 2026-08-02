@@ -9,8 +9,8 @@ use inkwell::targets::{
     CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
 };
 use inkwell::types::{IntType, StructType};
-use inkwell::values::{FunctionValue, IntValue, StructValue};
-use inkwell::{IntPredicate, OptimizationLevel};
+use inkwell::values::{FunctionValue, IntValue, PointerValue, StructValue};
+use inkwell::{AddressSpace, IntPredicate, OptimizationLevel};
 
 use crate::middle_end::{IRProgram, Instruction, Value};
 
@@ -18,6 +18,7 @@ use crate::middle_end::{IRProgram, Instruction, Value};
 enum RtValue<'ctx> {
     Int(IntValue<'ctx>),
     Struct(StructValue<'ctx>),
+    Str(PointerValue<'ctx>),
 }
 
 fn struct_type_for<'ctx>(context: &'ctx Context, field_count: usize, i32_type: IntType<'ctx>) -> StructType<'ctx> {
@@ -37,7 +38,20 @@ fn resolve_int<'ctx>(v: Value, temps: &[Option<RtValue<'ctx>>], locals: &[Option
     match resolve(v, temps, locals, i32_type) {
         RtValue::Int(i) => Ok(i),
         RtValue::Struct(_) => Err("expected an integer value, found a struct".to_string()),
+        RtValue::Str(_) => Err("expected an integer value, found a string".to_string()),
     }
+}
+
+fn resolve_str<'ctx>(v: Value, temps: &[Option<RtValue<'ctx>>], locals: &[Option<RtValue<'ctx>>], i32_type: IntType<'ctx>) -> Result<PointerValue<'ctx>, String> {
+    match resolve(v, temps, locals, i32_type) {
+        RtValue::Str(p) => Ok(p),
+        RtValue::Int(_) => Err("expected a string value, found an integer".to_string()),
+        RtValue::Struct(_) => Err("expected a string value, found a struct".to_string()),
+    }
+}
+
+fn get_extern_fn<'ctx>(module: &Module<'ctx>, name: &str) -> FunctionValue<'ctx> {
+    module.get_function(name).unwrap_or_else(|| panic!("extern function '{name}' was not declared"))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -52,6 +66,9 @@ fn compile_instructions<'ctx>(
     locals: &mut [Option<RtValue<'ctx>>],
     i32_type: IntType<'ctx>,
 ) -> Result<bool, String> {
+    let i64_type = context.i64_type();
+    let i8_type = context.i8_type();
+
     for instr in instructions {
         match instr {
             Instruction::Add(dest, l, r) => {
@@ -106,6 +123,120 @@ fn compile_instructions<'ctx>(
                         .into_struct_value();
                 }
                 temps[*dest] = Some(RtValue::Struct(aggregate));
+            }
+            Instruction::MakeString(dest, content) => {
+                let global_str = builder
+                    .build_global_string_ptr(content, "strlit")
+                    .map_err(|e| format!("codegen error: {e}"))?;
+                temps[*dest] = Some(RtValue::Str(global_str.as_pointer_value()));
+            }
+            Instruction::IntToString(dest, v) => {
+                let int_val = resolve_int(*v, temps, locals, i32_type)?;
+                let malloc_fn = get_extern_fn(module, "malloc");
+                let snprintf_fn = get_extern_fn(module, "snprintf");
+                let buf_size = i64_type.const_int(12, false);
+                let buf = builder
+                    .build_call(malloc_fn, &[buf_size.into()], "intbuf")
+                    .map_err(|e| format!("codegen error: {e}"))?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or("expected malloc to return a value")?
+                    .into_pointer_value();
+                let fmt = builder
+                    .build_global_string_ptr("%d", "int_fmt")
+                    .map_err(|e| format!("codegen error: {e}"))?
+                    .as_pointer_value();
+                builder
+                    .build_call(snprintf_fn, &[buf.into(), buf_size.into(), fmt.into(), int_val.into()], "snprintf_call")
+                    .map_err(|e| format!("codegen error: {e}"))?;
+                temps[*dest] = Some(RtValue::Str(buf));
+            }
+            Instruction::BoolToString(dest, v) => {
+                let int_val = resolve_int(*v, temps, locals, i32_type)?;
+                let zero = i32_type.const_int(0, false);
+                let is_true = builder
+                    .build_int_compare(IntPredicate::NE, int_val, zero, "booltruthy")
+                    .map_err(|e| format!("codegen error: {e}"))?;
+                let true_str = builder
+                    .build_global_string_ptr("true", "true_str")
+                    .map_err(|e| format!("codegen error: {e}"))?
+                    .as_pointer_value();
+                let false_str = builder
+                    .build_global_string_ptr("false", "false_str")
+                    .map_err(|e| format!("codegen error: {e}"))?
+                    .as_pointer_value();
+                let selected = builder
+                    .build_select(is_true, true_str, false_str, "boolstr")
+                    .map_err(|e| format!("codegen error: {e}"))?
+                    .into_pointer_value();
+                temps[*dest] = Some(RtValue::Str(selected));
+            }
+            Instruction::CharToString(dest, v) => {
+                let int_val = resolve_int(*v, temps, locals, i32_type)?;
+                let char_byte = builder
+                    .build_int_truncate(int_val, i8_type, "charbyte")
+                    .map_err(|e| format!("codegen error: {e}"))?;
+                let malloc_fn = get_extern_fn(module, "malloc");
+                let buf_size = i64_type.const_int(2, false);
+                let buf = builder
+                    .build_call(malloc_fn, &[buf_size.into()], "charbuf")
+                    .map_err(|e| format!("codegen error: {e}"))?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or("expected malloc to return a value")?
+                    .into_pointer_value();
+                builder.build_store(buf, char_byte).map_err(|e| format!("codegen error: {e}"))?;
+                let second_byte_ptr = unsafe {
+                    builder.build_gep(i8_type, buf, &[i64_type.const_int(1, false)], "charbuf_null")
+                }
+                .map_err(|e| format!("codegen error: {e}"))?;
+                builder
+                    .build_store(second_byte_ptr, i8_type.const_zero())
+                    .map_err(|e| format!("codegen error: {e}"))?;
+                temps[*dest] = Some(RtValue::Str(buf));
+            }
+            Instruction::Concat(dest, l, r) => {
+                let left_str = resolve_str(*l, temps, locals, i32_type)?;
+                let right_str = resolve_str(*r, temps, locals, i32_type)?;
+                let strlen_fn = get_extern_fn(module, "strlen");
+                let malloc_fn = get_extern_fn(module, "malloc");
+                let strcpy_fn = get_extern_fn(module, "strcpy");
+                let strcat_fn = get_extern_fn(module, "strcat");
+
+                let left_len = builder
+                    .build_call(strlen_fn, &[left_str.into()], "leftlen")
+                    .map_err(|e| format!("codegen error: {e}"))?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or("expected strlen to return a value")?
+                    .into_int_value();
+                let right_len = builder
+                    .build_call(strlen_fn, &[right_str.into()], "rightlen")
+                    .map_err(|e| format!("codegen error: {e}"))?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or("expected strlen to return a value")?
+                    .into_int_value();
+                let total = builder
+                    .build_int_add(left_len, right_len, "totallen")
+                    .map_err(|e| format!("codegen error: {e}"))?;
+                let total_plus_one = builder
+                    .build_int_add(total, i64_type.const_int(1, false), "totalpad")
+                    .map_err(|e| format!("codegen error: {e}"))?;
+                let buf = builder
+                    .build_call(malloc_fn, &[total_plus_one.into()], "concatbuf")
+                    .map_err(|e| format!("codegen error: {e}"))?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or("expected malloc to return a value")?
+                    .into_pointer_value();
+                builder
+                    .build_call(strcpy_fn, &[buf.into(), left_str.into()], "strcpy_call")
+                    .map_err(|e| format!("codegen error: {e}"))?;
+                builder
+                    .build_call(strcat_fn, &[buf.into(), right_str.into()], "strcat_call")
+                    .map_err(|e| format!("codegen error: {e}"))?;
+                temps[*dest] = Some(RtValue::Str(buf));
             }
             Instruction::Return(v) => {
                 let value = resolve_int(*v, temps, locals, i32_type)?;
@@ -170,6 +301,14 @@ pub fn compile_to_executable(program: &IRProgram, output_path: &Path) -> Result<
     let builder = context.create_builder();
 
     let i32_type = context.i32_type();
+    let i64_type = context.i64_type();
+    let ptr_type = context.ptr_type(AddressSpace::default());
+
+    module.add_function("malloc", ptr_type.fn_type(&[i64_type.into()], false), None);
+    module.add_function("strlen", i64_type.fn_type(&[ptr_type.into()], false), None);
+    module.add_function("strcpy", ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false), None);
+    module.add_function("strcat", ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false), None);
+    module.add_function("snprintf", i32_type.fn_type(&[ptr_type.into(), i64_type.into(), ptr_type.into()], true), None);
 
     for func in &program.functions {
         let fn_type = i32_type.fn_type(&[], false);

@@ -2,5 +2,7 @@
 pub enum ExprType {
     I32,
     Bool,
+    Str,
+    Char,
     Struct(&'static str),
 }

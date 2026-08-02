@@ -134,6 +134,8 @@ fn resolve_type_name(name: &str) -> Result<ExprType, String> {
     match name {
         "i32" => Ok(ExprType::I32),
         "bool" => Ok(ExprType::Bool),
+        "str" => Ok(ExprType::Str),
+        "char" => Ok(ExprType::Char),
         "Rectangle" => Ok(ExprType::Struct("Rectangle")),
         "Cuboid" => Ok(ExprType::Struct("Cuboid")),
         _ => Err(format!("unknown type '{name}'")),
@@ -157,6 +159,7 @@ fn infer_zero_arity_tag(name: &str) -> Result<ExprType, String> {
 fn check_expr(expr: &BoundedExpr) -> Result<TypedExpr, String> {
     match expr {
         BoundedExpr::Literal(value) => check_literal(value),
+        BoundedExpr::TemplateLiteral(parts) => check_template(parts),
         BoundedExpr::UnresolvedName(name) => resolve_zero_arity_tag(name),
         BoundedExpr::Binary { op, left, right } => {
             let left_type = infer(left)?;
@@ -179,6 +182,7 @@ fn check_expr(expr: &BoundedExpr) -> Result<TypedExpr, String> {
 fn infer(expr: &BoundedExpr) -> Result<ExprType, String> {
     match expr {
         BoundedExpr::Literal(value) => infer_literal(value),
+        BoundedExpr::TemplateLiteral(parts) => infer_template(parts),
         BoundedExpr::UnresolvedName(name) => infer_zero_arity_tag(name),
         BoundedExpr::Binary { left, right, .. } => {
             let left_type = infer(left)?;
@@ -193,7 +197,55 @@ fn infer(expr: &BoundedExpr) -> Result<ExprType, String> {
     }
 }
 
+fn check_template(parts: &[BoundedTemplatePart]) -> Result<TypedExpr, String> {
+    let mut typed_parts = Vec::with_capacity(parts.len());
+    for part in parts {
+        match part {
+            BoundedTemplatePart::Text(s) => typed_parts.push(TypedTemplatePart::Text(s.clone())),
+            BoundedTemplatePart::Expr(e) => {
+                let typed = check_expr(e)?;
+                check_interpolatable(typed.ty())?;
+                typed_parts.push(TypedTemplatePart::Expr(typed));
+            }
+        }
+    }
+    Ok(TypedExpr::Template(typed_parts))
+}
+
+fn infer_template(parts: &[BoundedTemplatePart]) -> Result<ExprType, String> {
+    for part in parts {
+        if let BoundedTemplatePart::Expr(e) = part {
+            check_interpolatable(infer(e)?)?;
+        }
+    }
+    Ok(ExprType::Str)
+}
+
+fn check_interpolatable(ty: ExprType) -> Result<(), String> {
+    match ty {
+        ExprType::I32 | ExprType::Bool | ExprType::Str | ExprType::Char => Ok(()),
+        ExprType::Struct(name) => Err(format!(
+            "cannot interpolate a value of type '{name}' into a literal - no string conversion is defined for it yet"
+        )),
+    }
+}
+
 fn infer_literal(value: &str) -> Result<ExprType, String> {
+    if let Some(first) = value.chars().next() {
+        match first {
+            '"' => {
+                validate_quoted_string(value)?;
+                return Ok(ExprType::Str);
+            }
+            '`' => return Ok(ExprType::Str),
+            '\'' => {
+                validate_char_atom(value)?;
+                return Ok(ExprType::Char);
+            }
+            _ => {}
+        }
+    }
+
     let (body, tag) = split_tag(value);
     match tag {
         None => body
@@ -233,6 +285,27 @@ fn split_tag(text: &str) -> (&str, Option<&str>) {
 }
 
 fn check_literal(value: &str) -> Result<TypedExpr, String> {
+    if let Some(first) = value.chars().next() {
+        match first {
+            '"' => {
+                let decoded = unescape(strip_delimiters(value, '"'))?;
+                return Ok(TypedExpr::Literal { value: decoded, ty: ExprType::Str });
+            }
+            '`' => {
+                let decoded = strip_delimiters(value, '`').to_string();
+                return Ok(TypedExpr::Literal { value: decoded, ty: ExprType::Str });
+            }
+            '\'' => {
+                let decoded = unescape(strip_delimiters(value, '\''))?;
+                if decoded.chars().count() != 1 {
+                    return Err(format!("a char literal must contain exactly one character, found '{value}'"));
+                }
+                return Ok(TypedExpr::Literal { value: decoded, ty: ExprType::Char });
+            }
+            _ => {}
+        }
+    }
+
     let (body, tag) = split_tag(value);
     match tag {
         None => {
@@ -253,4 +326,49 @@ fn check_literal(value: &str) -> Result<TypedExpr, String> {
             Ok(TypedExpr::StructLiteral { name: tag_def.struct_name, fields })
         }
     }
+}
+
+fn validate_quoted_string(raw: &str) -> Result<(), String> {
+    unescape(strip_delimiters(raw, '"')).map(|_| ())
+}
+
+fn validate_char_atom(raw: &str) -> Result<(), String> {
+    let unescaped = unescape(strip_delimiters(raw, '\''))?;
+    if unescaped.chars().count() != 1 {
+        return Err(format!("a char literal must contain exactly one character, found '{raw}'"));
+    }
+    Ok(())
+}
+
+fn strip_delimiters(raw: &str, quote: char) -> &str {
+    let triple: String = std::iter::repeat(quote).take(3).collect();
+    if raw.starts_with(&triple) {
+        &raw[3..raw.len() - 3]
+    } else {
+        &raw[1..raw.len() - 1]
+    }
+}
+
+fn unescape(body: &str) -> Result<String, String> {
+    let mut result = String::new();
+    let mut chars = body.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            result.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('n') => result.push('\n'),
+            Some('t') => result.push('\t'),
+            Some('r') => result.push('\r'),
+            Some('\\') => result.push('\\'),
+            Some('"') => result.push('"'),
+            Some('\'') => result.push('\''),
+            Some('`') => result.push('`'),
+            Some('0') => result.push('\0'),
+            Some(other) => return Err(format!("unknown escape sequence '\\{other}'")),
+            None => return Err("dangling escape character at end of literal".to_string()),
+        }
+    }
+    Ok(result)
 }

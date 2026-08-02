@@ -144,6 +144,16 @@ impl Binder {
     fn bind_expr(&self, expr: &Expr) -> Result<BoundedExpr, String> {
         match expr {
             Expr::Literal(value) => Ok(BoundedExpr::Literal(value.clone())),
+            Expr::TemplateLiteral(parts) => {
+                let mut bounded_parts = vec![];
+                for part in parts {
+                    match part {
+                        LiteralPart::Text(s) => bounded_parts.push(BoundedTemplatePart::Text(s.clone())),
+                        LiteralPart::Expr(e) => bounded_parts.push(BoundedTemplatePart::Expr(Box::new(self.bind_expr(e)?))),
+                    }
+                }
+                Ok(BoundedExpr::TemplateLiteral(bounded_parts))
+            }
             Expr::Var(name) => {
                 match self.lookup(name) {
                     Some(symbol) => Ok(BoundedExpr::Var(symbol.slot)),
