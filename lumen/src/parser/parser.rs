@@ -199,11 +199,38 @@ impl<'a> Parser<'a> {
                     Ok(Expr::Literal(text))
                 }
             }
+            Some(Token { kind: TokenKind::LiteralStartTemplate(text), .. }) => self.parse_format_literal(text),
             Some(tok) => Err(format!(
                 "expected an expression, found {:?} (line {}, column {})",
                 tok.kind, tok.line, tok.col
             )),
             None => Err("expected an expression, found end of file".to_string()),
+        }
+    }
+
+    fn parse_format_literal(&mut self, first: String) -> Result<Expr, String> {
+        let mut parts = vec![LiteralPart::Text(first)];
+        loop {
+            let hole = self.parse_expr(0)?;
+            parts.push(LiteralPart::Expr(hole));
+            match self.advance()? {
+                Some(Token { kind: TokenKind::LiteralMiddleTemplate(text), .. }) => {
+                    parts.push(LiteralPart::Text(text));
+                }
+                Some(Token { kind: TokenKind::LiteralEndTemplate(text), .. }) => {
+                    parts.push(LiteralPart::Text(text));
+                    return Ok(Expr::TemplateLiteral(parts));
+                }
+                Some(tok) => {
+                    return Err(format!(
+                        "expected the rest of the formatted literal, found {:?} (line {}, column {})",
+                        tok.kind, tok.line, tok.col
+                    ))
+                }
+                None => {
+                    return Err("expected the rest of the formatted literal, found end of file".to_string())
+                }
+            }
         }
     }
 

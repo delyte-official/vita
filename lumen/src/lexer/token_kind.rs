@@ -2,6 +2,9 @@
 pub enum TokenKind {
     Return,
     Literal(String),
+    LiteralStartTemplate(String),
+    LiteralMiddleTemplate(String),
+    LiteralEndTemplate(String),
     LBrace,
     RBrace,
     LParen,

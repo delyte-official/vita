@@ -1,9 +1,9 @@
-pub mod backend;
-pub mod binder;
+//pub mod backend;
+//pub mod binder;
 pub mod lexer;
-pub mod middle_end;
+//pub mod middle_end;
 pub mod parser;
-pub mod type_checker;
+//pub mod type_checker;
 pub mod pretty_printer;
 
 use std::path::Path;

@@ -1,4 +1,4 @@
-use crate::parser::{BinaryOp, Expr, Function, Program, Stmt};
+use crate::parser::*;
 
 pub fn pretty_print(program: &Program) -> String {
     let mut out = String::new();
@@ -104,6 +104,20 @@ fn print_expr(expr: &Expr) -> String {
 fn print_expr_prec(expr: &Expr, min_prec: u8) -> String {
     match expr {
         Expr::Literal(text) => text.clone(),
+        Expr::TemplateLiteral(parts) => {
+            let mut result = String::new();
+            for part in parts {
+                match part {
+                    LiteralPart::Text(text) => result.push_str(text),
+                    LiteralPart::Expr(expr) => {
+                        result.push('{');
+                        result.push_str(&print_expr(expr));
+                        result.push('}');
+                    }
+                }
+            }
+            result
+        }
         Expr::Var(name) => name.clone(),
         Expr::FuncCall { name } => format!("{name}()"),
         Expr::Binary { op, left, right } => {
