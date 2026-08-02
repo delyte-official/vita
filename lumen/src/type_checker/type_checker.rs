@@ -132,12 +132,10 @@ fn check_stmt(stmt: &BoundedStmt, return_type: ExprType, func_name: &str) -> Res
 
 fn resolve_type_name(name: &str) -> Result<ExprType, String> {
     match name {
-        "i32" => Ok(ExprType::I32),
+        "int" | "i32" => Ok(ExprType::I32),
         "bool" => Ok(ExprType::Bool),
-        "str" => Ok(ExprType::Str),
+        "string" => Ok(ExprType::Str),
         "char" => Ok(ExprType::Char),
-        "Rectangle" => Ok(ExprType::Struct("Rectangle")),
-        "Cuboid" => Ok(ExprType::Struct("Cuboid")),
         _ => Err(format!("unknown type '{name}'")),
     }
 }
