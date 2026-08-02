@@ -13,6 +13,7 @@ pub fn lower(program: TypedProgram) -> IRProgram {
             instructions,
             local_count: func.local_count,
             temp_count: next_temp,
+            return_type: func.return_type,
         });
     }
 
@@ -114,6 +115,9 @@ fn lower_expr(expr: TypedExpr, instructions: &mut Vec<Instruction>, next_temp: &
             ExprType::Struct(_) => unreachable!(
                 "a plain Literal never carries a Struct type - struct values come from StructLiteral"
             ),
+            ExprType::Void => unreachable!(
+                "a plain Literal never carries a Void type - nothing in check_literal produces one"
+            ),
         },
         TypedExpr::StructLiteral { name, fields } => {
             let field_values: Vec<Value> = fields
@@ -185,6 +189,9 @@ fn lower_template(parts: Vec<TypedTemplatePart>, instructions: &mut Vec<Instruct
                     }
                     ExprType::Struct(_) => unreachable!(
                         "check_interpolatable already rejects struct values inside a template"
+                    ),
+                    ExprType::Void => unreachable!(
+                        "check_interpolatable already rejects void values inside a template"
                     ),
                 }
             }
