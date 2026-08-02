@@ -1,0 +1,4 @@
+func main() {
+    val yo: int = 2;
+    return yo;
+}

@@ -1,0 +1,27 @@
+use crate::middle_end::Value;
+
+pub enum Instruction {
+    Add(usize, Value, Value),
+    Sub(usize, Value, Value),
+    Mul(usize, Value, Value),
+    Div(usize, Value, Value),
+    VarDecl(usize, Value),
+    Return(Value),
+    Call(usize, usize),
+    MakeStruct {
+        dest: usize,
+        name: &'static str,
+        fields: Vec<Value>,
+    },
+    MakeString(usize, String),
+    IntToString(usize, Value),
+    BoolToString(usize, Value),
+    CharToString(usize, Value),
+    Concat(usize, Value, Value),
+    If {
+        condition: Value,
+        then_branch: Vec<Instruction>,
+        else_branch: Option<Vec<Instruction>>,
+    },
+    Assign(usize, Value),
+}
