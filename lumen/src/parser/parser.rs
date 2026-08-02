@@ -249,8 +249,14 @@ impl<'a> Parser<'a> {
         let name = self.parse_identifier()?;
         self.expect(TokenKind::LParen)?;
         self.expect(TokenKind::RParen)?;
+        let return_type = if let Some(Token { kind: TokenKind::Colon, .. }) = self.peek() {
+            self.advance()?;
+            Some(self.parse_identifier()?)
+        } else {
+            None
+        };
         let body = self.parse_block()?;
-        Ok(Function { name, body })
+        Ok(Function { name, body, return_type })
     }
 }
 
