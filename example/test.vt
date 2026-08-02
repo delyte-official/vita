@@ -1,4 +1,4 @@
-func main() {
+func main(): int {
     val yo: int = 2;
     return yo;
 }
