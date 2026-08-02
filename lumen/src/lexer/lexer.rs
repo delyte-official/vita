@@ -92,7 +92,7 @@ impl<'a> Lexer<'a> {
                     return Ok(Some(self.single_char_token(TokenKind::Slash)));
                 }
                 // handle literals
-                Some(c) if c.is_ascii_alphanumeric() || c == '_' || c == ':' || c == '.' || c == '`' || c == '\'' || c == '"' => {
+                Some(c) if c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '`' || c == '\'' || c == '"' => {
                     let (line, col) = (self.line, self.col);
                     let text = String::new();
                     return self.continue_literal_scan(text, line, col, false, TokenMode::Normal);
@@ -146,7 +146,22 @@ impl<'a> Lexer<'a> {
         }
 
         while let Some(next_c) = self.chars.peek().copied() {
-            if next_c.is_ascii_alphanumeric() || next_c == '_' || next_c == ':' {
+            if next_c.is_ascii_alphanumeric() || next_c == '_' {
+                text.push(next_c);
+                self.bump();
+            } // handling the colon rule: must not be the end of the literal
+            else if next_c == ':' {
+                let mut cloned_chars = self.chars.clone();
+                cloned_chars.next(); // skip the current peeked operator
+                let follows_colon = cloned_chars.peek();
+                let is_followed_by_valid = match follows_colon {
+                    Some(following_char) => following_char.is_ascii_alphanumeric() || *following_char == '_' || *following_char == ':' || *following_char == '.' || *following_char == '`' || *following_char == '\'' || *following_char == '"' || *following_char == '{',
+                    None => false,
+                };
+
+                if !is_followed_by_valid { // not accepted
+                    break;
+                }
                 text.push(next_c);
                 self.bump();
             } // handling the dot rule: must be followed by a digit
@@ -297,6 +312,7 @@ impl<'a> Lexer<'a> {
             "if" => TokenKind::If,
             "elif" => TokenKind::Elif,
             "else" => TokenKind::Else,
+            "func" => TokenKind::Func,
             _ => TokenKind::Literal(text),
         };
         Ok(Some(self.finish(kind, line, col)))

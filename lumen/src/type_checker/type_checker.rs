@@ -13,10 +13,21 @@ pub fn check(program: BoundedProgram) -> Result<TypedProgram, String> {
 }
 
 fn check_function(func: &BoundedFunction) -> Result<TypedFunction, String> {
-    let return_type = ExprType::I32;
+    let return_type = match &func.return_type {
+        Some(type_name) => resolve_type_name(type_name)?,
+        None => ExprType::Void,
+    };
+
+    if func.name == "main" && !matches!(return_type, ExprType::Void | ExprType::I32) {
+        return Err(format!(
+            "function 'main' must return 'void' or 'int', found '{}'",
+            return_type.to_string()
+        ));
+    }
+
     let typed_stmts = check_stmts(&func.body, return_type, &func.name)?;
 
-    if !stmts_always_return(&func.body) {
+    if return_type != ExprType::Void && !stmts_always_return(&func.body) {
         return Err(format!(
             "function '{}' does not return a value on all code paths",
             func.name
@@ -27,6 +38,7 @@ fn check_function(func: &BoundedFunction) -> Result<TypedFunction, String> {
         name: func.name.clone(),
         body: typed_stmts,
         local_count: func.local_count,
+        return_type,
     })
 }
 
@@ -65,8 +77,19 @@ fn check_stmt(stmt: &BoundedStmt, return_type: ExprType, func_name: &str) -> Res
     match stmt {
         BoundedStmt::Return(expr) => {
             let typedexpr = check_expr(expr)?;
-            if !matches!((return_type, typedexpr.ty()), (ExprType::I32, ExprType::I32)) {
-                return Err(format!("return type doesn't match function '{}' declared return type", func_name));
+            if return_type == ExprType::Void {
+                return Err(format!(
+                    "function '{}' is void and cannot return a value",
+                    func_name
+                ));
+            }
+            if typedexpr.ty() != return_type {
+                return Err(format!(
+                    "function '{}' is declared to return '{}' but this statement returns '{}'",
+                    func_name,
+                    return_type.to_string(),
+                    typedexpr.ty().to_string()
+                ));
             }
             Ok(TypedStmt::Return(typedexpr))
         }
@@ -132,12 +155,10 @@ fn check_stmt(stmt: &BoundedStmt, return_type: ExprType, func_name: &str) -> Res
 
 fn resolve_type_name(name: &str) -> Result<ExprType, String> {
     match name {
-        "i32" => Ok(ExprType::I32),
+        "int" | "i32" => Ok(ExprType::I32),
         "bool" => Ok(ExprType::Bool),
-        "str" => Ok(ExprType::Str),
+        "string" => Ok(ExprType::Str),
         "char" => Ok(ExprType::Char),
-        "Rectangle" => Ok(ExprType::Struct("Rectangle")),
-        "Cuboid" => Ok(ExprType::Struct("Cuboid")),
         _ => Err(format!("unknown type '{name}'")),
     }
 }
@@ -224,6 +245,9 @@ fn infer_template(parts: &[BoundedTemplatePart]) -> Result<ExprType, String> {
 fn check_interpolatable(ty: ExprType) -> Result<(), String> {
     match ty {
         ExprType::I32 | ExprType::Bool | ExprType::Str | ExprType::Char => Ok(()),
+        ExprType::Void => Err(
+            "cannot interpolate a void value into a literal - it doesn't have anything to convert to a string".to_string()
+        ),
         ExprType::Struct(name) => Err(format!(
             "cannot interpolate a value of type '{name}' into a literal - no string conversion is defined for it yet"
         )),
