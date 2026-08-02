@@ -4,15 +4,22 @@ pub fn pretty_print(program: &Program) -> String {
     let mut out = String::new();
     for (i, func) in program.functions.iter().enumerate() {
         if i > 0 {
-            out.push_str("\n\n");
+            out.push('\n');
         }
         print_function(func, &mut out);
+        out.push('\n');
     }
     out
 }
 
 fn print_function(func: &Function, out: &mut String) {
+    out.push_str("func ");
     out.push_str(&func.name);
+    out.push_str("()");
+    if let Some(ty) = &func.return_type {
+        out.push_str(": ");
+        out.push_str(ty);
+    }
     out.push_str(" {\n");
     print_stmts(&func.body, 1, out);
     out.push_str("}");
