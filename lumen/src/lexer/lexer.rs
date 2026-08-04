@@ -287,6 +287,7 @@ impl<'a> Lexer<'a> {
             }
         }
 
+        // match regex flags
         while let Some(c) = self.chars.peek().copied() {
             if c.is_ascii_alphabetic() {
                 raw.push(c);
@@ -356,6 +357,7 @@ impl<'a> Lexer<'a> {
             }
         }
 
+        // closing quote
         match self.chars.peek().copied() {
             Some('\'') => {
                 raw.push('\'');

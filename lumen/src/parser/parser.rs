@@ -114,23 +114,25 @@ impl<'a> Parser<'a> {
                     ));
                 }
                 self.advance()?;
-                if self.peek_kind() == Some(TokenKind::Equal) {
-                    self.advance()?;
-                    let expr = self.parse_expr(0)?;
-                    self.expect(TokenKind::Semicolon)?;
-                    Ok(Stmt::Assign(value, expr))
-                } else if self.peek_kind() == Some(TokenKind::LParen) {
-                    self.advance()?;
-                    self.expect(TokenKind::RParen)?;
-                    self.expect(TokenKind::Semicolon)?;
-                    Ok(Stmt::FuncCall { name: value })
-                } else {
-                    Err(format!(
+                match self.peek_kind() {
+                    Some(TokenKind::Equal) => {
+                        self.advance()?;
+                        let expr = self.parse_expr(0)?;
+                        self.expect(TokenKind::Semicolon)?;
+                        Ok(Stmt::Assign(value, expr))
+                    }
+                    Some(TokenKind::LParen) => {
+                        self.advance()?;
+                        self.expect(TokenKind::RParen)?;
+                        self.expect(TokenKind::Semicolon)?;
+                        Ok(Stmt::FuncCall { name: value })
+                    }
+                    _ => Err(format!(
                         "expected '=' or '(', found {:?} (line {}, column {})",
                         self.peek_kind(),
                         self.peek().map_or(0, |t| t.line),
                         self.peek().map_or(0, |t| t.col)
-                    ))
+                    )),
                 }
             }
             _ => Err("expected a statement".to_string()),
