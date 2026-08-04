@@ -71,6 +71,7 @@ impl Binder {
             name: func.name.clone(),
             body: bounded_stmts,
             local_count: self.next_slot,
+            return_type: func.return_type.clone(),
         })
     }
 
