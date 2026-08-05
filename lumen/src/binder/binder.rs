@@ -34,7 +34,7 @@ impl Binder {
         self.symbols.get(name)?.last()
     }
 
-    fn define(&mut self, name: String, ty: String, mutable: bool) -> Result<usize, String> {
+    fn define(&mut self, name: String, mutable: bool) -> Result<usize, String> {
         let stack = self.symbols.entry(name.clone()).or_default();
         let slot = self.next_slot;
         self.next_slot += 1;
@@ -42,7 +42,6 @@ impl Binder {
         stack.push(Symbol {
             name,
             scope_depth: self.current_depth,
-            ty,
             slot,
             mutable,
         });
@@ -57,7 +56,6 @@ impl Binder {
         stack.push(Symbol {
             name,
             scope_depth: self.current_depth,
-            ty: "i32".into(),
             slot: index,
             mutable: false,
         });
@@ -90,12 +88,12 @@ impl Binder {
             Stmt::Return(expr) => Ok(BoundedStmt::Return(self.bind_expr(expr)?)),
             Stmt::VarDecl(name, type_annotation, expr) => {
                 let bound_expr = self.bind_expr(expr)?;
-                let slot = self.define(name.clone(), "i32".into(), true)?;
+                let slot = self.define(name.clone(), true)?;
                 Ok(BoundedStmt::VarDecl(slot, type_annotation.clone(), bound_expr))
             }
             Stmt::ValDecl(name, type_annotation, expr) => {
                 let bound_expr = self.bind_expr(expr)?;
-                let slot = self.define(name.clone(), "i32".into(), false)?;
+                let slot = self.define(name.clone(), false)?;
                 Ok(BoundedStmt::ValDecl(slot, type_annotation.clone(), bound_expr))
             }
             Stmt::If { condition, then_branch, elif_branches, else_branch } => {
@@ -156,14 +154,13 @@ impl Binder {
                 Ok(BoundedExpr::TemplateLiteral(bounded_parts))
             }
             Expr::Var(name) => {
-                match self.lookup(name) {
-                    Some(symbol) => Ok(BoundedExpr::Var(symbol.slot)),
-                    None => Ok(BoundedExpr::UnresolvedName(name.clone())),
-                }
+                let symbol = self.lookup(name)
+                    .ok_or_else(|| format!("undeclared variable '{}'", name))?;
+                Ok(BoundedExpr::Var(symbol.slot))
             }
             Expr::FuncCall { name } => {
                 let symbol = self.lookup(name)
-                .ok_or_else(|| format!("undeclared function '{}'", name))?;
+                    .ok_or_else(|| format!("undeclared function '{}'", name))?;
                 Ok(BoundedExpr::FuncCall(symbol.slot))
             }
             Expr::Binary { op, left, right } => {

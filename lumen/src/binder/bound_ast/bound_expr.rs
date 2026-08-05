@@ -10,7 +10,6 @@ pub enum BoundedTemplatePart {
 pub enum BoundedExpr {
     Literal(String),
     TemplateLiteral(Vec<BoundedTemplatePart>),
-    UnresolvedName(String),
     Binary {
         op: BinaryOp,
         left: Box<BoundedExpr>,
