@@ -38,7 +38,7 @@ impl Stmt {
                 write!(f, "{}val {}{} = {:?};", spaces, name, type_str, expr)
             }
             Stmt::If { condition, then_branch, elif_branches, else_branch } => {
-                write!(f, "{}if {:?} {{\n", spaces, condition)?;
+                write!(f, "{}if ({:?}) {{\n", spaces, condition)?;
                 
                 for stmt in then_branch {
                     stmt.fmt_with_indent(f, indent + 1)?;
@@ -48,7 +48,7 @@ impl Stmt {
 
                 if let Some(elif_list) = elif_branches {
                     for (cond, branch) in elif_list {
-                        write!(f, " elif {:?} {{\n", cond)?;
+                        write!(f, " elif ({:?}) {{\n", cond)?;
                         for stmt in branch {
                             stmt.fmt_with_indent(f, indent + 1)?;
                             writeln!(f)?;
