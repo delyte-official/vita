@@ -1,3 +1,19 @@
+func test(): string {
+    val r: rect = 2:3R;
+    val reg = /shroom+[a-z]/isto;
+    return "this is a complex {reg} string with {r + width + 2 / 3} products";
+}
+
 func main() {
     val yo: int = 2;
+    val ret = test() + "{yo}";
+    if (2+4) {
+        val yo = 2;
+        return 3;
+    } elif (5) {
+        test();
+        return 2;
+    } else {
+        return ret + sorry"""mom""";
+    }
 }

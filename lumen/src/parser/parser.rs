@@ -167,7 +167,7 @@ impl<'a> Parser<'a> {
             let elif_body: Vec<Stmt> = if let Some(Token { kind: TokenKind::LBrace, .. }) = self.peek() {
                 self.parse_block()?
             } else {
-                vec![self.parse_stmt(allow_block)?]
+                vec![self.parse_stmt(false)?]
             };
             elif_branches.push((elif_condition, elif_body));
         }

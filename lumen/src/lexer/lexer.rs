@@ -175,6 +175,9 @@ impl<'a> Lexer<'a> {
                 };
 
                 if !is_followed_by_valid { // not accepted
+                    if text == "" {
+                        return Ok(Some(self.finish(TokenKind::Dot, line, col)));
+                    }
                     break;
                 }
                 text.push(next_c);

@@ -1,6 +1,5 @@
 pub mod lexer;
 pub mod parser;
-pub mod pretty_printer;
 
 pub mod binder;
 pub mod type_checker;
@@ -13,8 +12,6 @@ use std::path::Path;
 
 pub fn compile(source: &str, output_path: &Path) -> Result<(), String> {
     let ast = parser::parse(source)?;
-    let pretty_ast = pretty_printer::pretty_print(&ast);
-    print!("{}", pretty_ast);
     let bound = binder::bind(ast)?;
     let typed = type_checker::check(bound)?;
     let ir = middle_end::lower(typed);
