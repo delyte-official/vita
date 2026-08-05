@@ -1,6 +1,7 @@
 func test(): string {
     val r: rect = 2:3R;
     val reg = /shroom+[a-z]/isto;
+    val width = 3;
     return "this is a complex {reg} string with {r + width + 2 / 3} products";
 }
 
