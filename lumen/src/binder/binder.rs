@@ -34,7 +34,7 @@ impl Binder {
         self.symbols.get(name)?.last()
     }
 
-    fn define(&mut self, name: String, ty: String, mutable: bool) -> Result<usize, String> {
+    fn define(&mut self, name: String, mutable: bool) -> Result<usize, String> {
         let stack = self.symbols.entry(name.clone()).or_default();
         let slot = self.next_slot;
         self.next_slot += 1;
@@ -42,7 +42,6 @@ impl Binder {
         stack.push(Symbol {
             name,
             scope_depth: self.current_depth,
-            ty,
             slot,
             mutable,
         });
@@ -57,7 +56,6 @@ impl Binder {
         stack.push(Symbol {
             name,
             scope_depth: self.current_depth,
-            ty: "i32".into(),
             slot: index,
             mutable: false,
         });
@@ -65,9 +63,13 @@ impl Binder {
     }
 
     fn bind_function(&mut self, func: &crate::parser::Function) -> Result<BoundedFunction, String> {
+        let index = self.lookup(&func.name)
+            .ok_or_else(|| format!("function '{}' is not defined", func.name))?
+            .slot;
         self.next_slot = 0;
         let bounded_stmts = self.bind_block(&func.body)?;
         Ok(BoundedFunction {
+            index,
             name: func.name.clone(),
             body: bounded_stmts,
             local_count: self.next_slot,
@@ -90,13 +92,13 @@ impl Binder {
             Stmt::Return(expr) => Ok(BoundedStmt::Return(self.bind_expr(expr)?)),
             Stmt::VarDecl(name, type_annotation, expr) => {
                 let bound_expr = self.bind_expr(expr)?;
-                let slot = self.define(name.clone(), "i32".into(), true)?;
-                Ok(BoundedStmt::VarDecl(slot, type_annotation.clone(), bound_expr))
+                let slot = self.define(name.clone(), true)?;
+                Ok(BoundedStmt::VarDecl(slot, name.clone(), type_annotation.clone(), bound_expr))
             }
             Stmt::ValDecl(name, type_annotation, expr) => {
                 let bound_expr = self.bind_expr(expr)?;
-                let slot = self.define(name.clone(), "i32".into(), false)?;
-                Ok(BoundedStmt::ValDecl(slot, type_annotation.clone(), bound_expr))
+                let slot = self.define(name.clone(), false)?;
+                Ok(BoundedStmt::ValDecl(slot, name.clone(), type_annotation.clone(), bound_expr))
             }
             Stmt::If { condition, then_branch, elif_branches, else_branch } => {
                 let bound_condition = self.bind_expr(condition)?;
@@ -132,12 +134,12 @@ impl Binder {
                 if !symbol.mutable {
                     return Err(format!("cannot assign to '{}': it was declared with 'val' and is not mutable", name));
                 }
-                Ok(BoundedStmt::Assign(symbol.slot, bound_expr))
+                Ok(BoundedStmt::Assign(symbol.slot, name.clone(), bound_expr))
             }
             Stmt::FuncCall { name } => {
                 let symbol = self.lookup(name)
                     .ok_or_else(|| format!("undeclared function '{}'", name))?;
-                Ok(BoundedStmt::FuncCall(symbol.slot))
+                Ok(BoundedStmt::FuncCall(symbol.slot, name.clone()))
             }
         }
     }
@@ -156,15 +158,14 @@ impl Binder {
                 Ok(BoundedExpr::TemplateLiteral(bounded_parts))
             }
             Expr::Var(name) => {
-                match self.lookup(name) {
-                    Some(symbol) => Ok(BoundedExpr::Var(symbol.slot)),
-                    None => Ok(BoundedExpr::UnresolvedName(name.clone())),
-                }
+                let symbol = self.lookup(name)
+                    .ok_or_else(|| format!("undeclared variable '{}'", name))?;
+                Ok(BoundedExpr::Var(symbol.slot, name.clone()))
             }
             Expr::FuncCall { name } => {
                 let symbol = self.lookup(name)
-                .ok_or_else(|| format!("undeclared function '{}'", name))?;
-                Ok(BoundedExpr::FuncCall(symbol.slot))
+                    .ok_or_else(|| format!("undeclared function '{}'", name))?;
+                Ok(BoundedExpr::FuncCall(symbol.slot, name.clone()))
             }
             Expr::Binary { op, left, right } => {
                 let left_bound = self.bind_expr(left)?;

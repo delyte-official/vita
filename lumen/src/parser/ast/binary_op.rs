@@ -1,6 +1,8 @@
+use std::fmt;
+
 use crate::lexer::TokenKind;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOp {
     Plus,
     Minus,
@@ -31,5 +33,17 @@ impl BinaryOp {
             BinaryOp::Plus | BinaryOp::Minus => 2,
             BinaryOp::Star | BinaryOp::Slash => 3,
         }
+    }
+}
+
+impl fmt::Debug for BinaryOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let op_str = match self {
+            BinaryOp::Plus => "+",
+            BinaryOp::Minus => "-",
+            BinaryOp::Star => "*",
+            BinaryOp::Slash => "/",
+        };
+        write!(f, "{}", op_str)
     }
 }
