@@ -17,7 +17,7 @@ pub enum Stmt {
 }
 
 impl Stmt {
-    fn fmt_with_indent(&self, f: &mut fmt::Formatter<'_>, indent: usize) -> fmt::Result {
+    pub fn fmt_with_indent(&self, f: &mut fmt::Formatter<'_>, indent: usize) -> fmt::Result {
         let spaces = "\t".repeat(indent);
         match self {
             Stmt::Return(expr) => {
@@ -79,6 +79,6 @@ impl Stmt {
 
 impl fmt::Debug for Stmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.fmt_with_indent(f, 1)
+        self.fmt_with_indent(f, 0)
     }
 }
