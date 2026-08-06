@@ -15,6 +15,7 @@ pub enum Expr {
         left: Box<Expr>,
         right: Box<Expr>,
     },
+    Parenthesized(Box<Expr>),
     Var(String),
     FuncCall { name: String },
 }
@@ -43,6 +44,7 @@ impl fmt::Debug for Expr {
             Expr::Binary { op, left, right } => {
                 write!(f, "{:#?} {:#?} {:#?}", left, op, right)
             }
+            Expr::Parenthesized(expr) => write!(f, "({:#?})", expr),
             Expr::Var(name) => write!(f, "{}", name),
             Expr::FuncCall { name } => write!(f, "{}()", name),
         }

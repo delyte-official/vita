@@ -118,6 +118,8 @@ impl<'a> Lexer<'a> {
                 Some('=') => return Ok(Some(self.single_char_token(TokenKind::Equal))),
                 Some('(') => return Ok(Some(self.single_char_token(TokenKind::LParen))),
                 Some(')') => return Ok(Some(self.single_char_token(TokenKind::RParen))),
+                Some('<') => return Ok(Some(self.single_char_token(TokenKind::LeftAngleBracket))),
+                Some('>') => return Ok(Some(self.single_char_token(TokenKind::RightAngleBracket))),
                 Some(c) => {
                     let (line, col) = (self.line, self.col);
                     let bad = c;
@@ -317,6 +319,9 @@ impl<'a> Lexer<'a> {
             "elif" => TokenKind::Elif,
             "else" => TokenKind::Else,
             "func" => TokenKind::Func,
+            "primitive" => TokenKind::Primitive,
+            "class" => TokenKind::Class,
+            "constructor" => TokenKind::Constructor,
             _ => TokenKind::Literal(text),
         };
         Ok(Some(self.finish(kind, line, col)))
