@@ -35,6 +35,7 @@ fn check_function(func: &BoundedFunction) -> Result<TypedFunction, String> {
     }
 
     Ok(TypedFunction {
+        index: func.index,
         name: func.name.clone(),
         body: typed_stmts,
         local_count: func.local_count,
@@ -49,7 +50,7 @@ fn stmts_always_return(stmts: &[BoundedStmt]) -> bool {
 fn stmt_always_returns(stmt: &BoundedStmt) -> bool {
     match stmt {
         BoundedStmt::Return(_) => true,
-        BoundedStmt::VarDecl(_, _, _) | BoundedStmt::ValDecl(_, _, _) => false,
+        BoundedStmt::VarDecl(..) | BoundedStmt::ValDecl(..) => false,
         BoundedStmt::If { then_branch, elif_branches, else_branch, .. } => {
             let Some(else_branch) = else_branch else {
                 return false;
@@ -64,8 +65,8 @@ fn stmt_always_returns(stmt: &BoundedStmt) -> bool {
 
             then_ok && elifs_ok && else_ok
         }
-        BoundedStmt::Assign(_, _) => false,
-        BoundedStmt::FuncCall(_) => false,
+        BoundedStmt::Assign(..) => false,
+        BoundedStmt::FuncCall(..) => false,
     }
 }
 
@@ -93,7 +94,7 @@ fn check_stmt(stmt: &BoundedStmt, return_type: ExprType, func_name: &str) -> Res
             }
             Ok(TypedStmt::Return(typedexpr))
         }
-        BoundedStmt::VarDecl(slot, type_annotation, expr) => {
+        BoundedStmt::VarDecl(slot, name, type_annotation, expr) => {
             let typed_expr = check_expr(expr)?;
             if let Some(type_name) = type_annotation {
                 let declared_type = resolve_type_name(type_name)?;
@@ -101,9 +102,9 @@ fn check_stmt(stmt: &BoundedStmt, return_type: ExprType, func_name: &str) -> Res
                     return Err(format!("variable declared as '{type_name}' but initializer has a different type"));
                 }
             }
-            Ok(TypedStmt::VarDecl(*slot, typed_expr))
+            Ok(TypedStmt::VarDecl(*slot, name.clone(), typed_expr))
         }
-        BoundedStmt::ValDecl(slot, type_annotation, expr) => {
+        BoundedStmt::ValDecl(slot, name, type_annotation, expr) => {
             let typed_expr = check_expr(expr)?;
             if let Some(type_name) = type_annotation {
                 let declared_type = resolve_type_name(type_name)?;
@@ -111,7 +112,7 @@ fn check_stmt(stmt: &BoundedStmt, return_type: ExprType, func_name: &str) -> Res
                     return Err(format!("variable declared as '{type_name}' but initializer has a different type"));
                 }
             }
-            Ok(TypedStmt::ValDecl(*slot, typed_expr))
+            Ok(TypedStmt::ValDecl(*slot, name.clone(), typed_expr))
         }
         BoundedStmt::If { condition, then_branch, elif_branches, else_branch } => {
             let condition_type = infer(condition)?;
@@ -148,8 +149,8 @@ fn check_stmt(stmt: &BoundedStmt, return_type: ExprType, func_name: &str) -> Res
                 else_branch: typed_else,
             })
         }
-        BoundedStmt::Assign(slot, expr) => Ok(TypedStmt::Assign(*slot, check_expr(expr)?)),
-        BoundedStmt::FuncCall(slot) => Ok(TypedStmt::FuncCall(*slot)),
+        BoundedStmt::Assign(slot, name, expr) => Ok(TypedStmt::Assign(*slot, name.clone(), check_expr(expr)?)),
+        BoundedStmt::FuncCall(slot, name) => Ok(TypedStmt::FuncCall(*slot, name.clone())),
     }
 }
 
@@ -157,23 +158,9 @@ fn resolve_type_name(name: &str) -> Result<ExprType, String> {
     match name {
         "int" | "i32" => Ok(ExprType::I32),
         "bool" => Ok(ExprType::Bool),
-        "string" => Ok(ExprType::Str),
+        "string" => Ok(ExprType::String),
         "char" => Ok(ExprType::Char),
         _ => Err(format!("unknown type '{name}'")),
-    }
-}
-
-fn resolve_zero_arity_tag(name: &str) -> Result<TypedExpr, String> {
-    match name {
-        "true" | "false" => Ok(TypedExpr::Literal { value: name.to_string(), ty: ExprType::Bool }),
-        _ => Err(format!("undeclared variable '{}'", name)),
-    }
-}
-
-fn infer_zero_arity_tag(name: &str) -> Result<ExprType, String> {
-    match name {
-        "true" | "false" => Ok(ExprType::Bool),
-        _ => Err(format!("undeclared variable '{}'", name)),
     }
 }
 
@@ -181,7 +168,6 @@ fn check_expr(expr: &BoundedExpr) -> Result<TypedExpr, String> {
     match expr {
         BoundedExpr::Literal(value) => check_literal(value),
         BoundedExpr::TemplateLiteral(parts) => check_template(parts),
-        BoundedExpr::UnresolvedName(name) => resolve_zero_arity_tag(name),
         BoundedExpr::Binary { op, left, right } => {
             let left_type = infer(left)?;
             let right_type = infer(right)?;
@@ -195,8 +181,8 @@ fn check_expr(expr: &BoundedExpr) -> Result<TypedExpr, String> {
                 ty: ExprType::I32,
             })
         }
-        BoundedExpr::Var(slot) => Ok(TypedExpr::Var(*slot)),
-        BoundedExpr::FuncCall(slot) => Ok(TypedExpr::FuncCall(*slot)),
+        BoundedExpr::Var(slot, name) => Ok(TypedExpr::Var(*slot, name.clone())),
+        BoundedExpr::FuncCall(slot, name) => Ok(TypedExpr::FuncCall(*slot, name.clone())),
     }
 }
 
@@ -204,7 +190,6 @@ fn infer(expr: &BoundedExpr) -> Result<ExprType, String> {
     match expr {
         BoundedExpr::Literal(value) => infer_literal(value),
         BoundedExpr::TemplateLiteral(parts) => infer_template(parts),
-        BoundedExpr::UnresolvedName(name) => infer_zero_arity_tag(name),
         BoundedExpr::Binary { left, right, .. } => {
             let left_type = infer(left)?;
             let right_type = infer(right)?;
@@ -213,8 +198,8 @@ fn infer(expr: &BoundedExpr) -> Result<ExprType, String> {
             }
             Ok(ExprType::I32)
         }
-        BoundedExpr::Var(_) => Ok(ExprType::I32),
-        BoundedExpr::FuncCall(_) => Ok(ExprType::I32),
+        BoundedExpr::Var(..) => Ok(ExprType::I32),
+        BoundedExpr::FuncCall(..) => Ok(ExprType::I32),
     }
 }
 
@@ -239,18 +224,15 @@ fn infer_template(parts: &[BoundedTemplatePart]) -> Result<ExprType, String> {
             check_interpolatable(infer(e)?)?;
         }
     }
-    Ok(ExprType::Str)
+    Ok(ExprType::String)
 }
 
 fn check_interpolatable(ty: ExprType) -> Result<(), String> {
     match ty {
-        ExprType::I32 | ExprType::Bool | ExprType::Str | ExprType::Char => Ok(()),
+        ExprType::I32 | ExprType::Bool | ExprType::String | ExprType::Char => Ok(()),
         ExprType::Void => Err(
             "cannot interpolate a void value into a literal - it doesn't have anything to convert to a string".to_string()
         ),
-        ExprType::Struct(name) => Err(format!(
-            "cannot interpolate a value of type '{name}' into a literal - no string conversion is defined for it yet"
-        )),
     }
 }
 
@@ -259,9 +241,9 @@ fn infer_literal(value: &str) -> Result<ExprType, String> {
         match first {
             '"' => {
                 validate_quoted_string(value)?;
-                return Ok(ExprType::Str);
+                return Ok(ExprType::String);
             }
-            '`' => return Ok(ExprType::Str),
+            '`' => return Ok(ExprType::String),
             '\'' => {
                 validate_char_atom(value)?;
                 return Ok(ExprType::Char);
@@ -276,28 +258,9 @@ fn infer_literal(value: &str) -> Result<ExprType, String> {
             .parse::<i32>()
             .map(|_| ExprType::I32)
             .map_err(|_| format!("unsupported literal: '{value}'")),
-        Some(tag_name) => {
-            let parts: Vec<&str> = body.split(':').collect();
-            let tag_def = lookup_tag(tag_name, parts.len())
-                .ok_or_else(|| format!("no literal of shape {} field(s) tagged '{tag_name}' is defined (in '{value}')", parts.len()))?;
-            for part in &parts {
-                part.parse::<i32>()
-                    .map_err(|_| format!("invalid field '{part}' in literal '{value}'"))?;
-            }
-            Ok(ExprType::Struct(tag_def.struct_name))
+        Some(_) => {
+            Ok(ExprType::Void)
         }
-    }
-}
-
-struct TagDef {
-    struct_name: &'static str,
-}
-
-fn lookup_tag(tag: &str, field_count: usize) -> Option<TagDef> {
-    match (tag, field_count) {
-        ("R", 2) => Some(TagDef { struct_name: "Rectangle" }),
-        ("R", 3) => Some(TagDef { struct_name: "Cuboid" }),
-        _ => None,
     }
 }
 
@@ -313,11 +276,11 @@ fn check_literal(value: &str) -> Result<TypedExpr, String> {
         match first {
             '"' => {
                 let decoded = unescape(strip_delimiters(value, '"'))?;
-                return Ok(TypedExpr::Literal { value: decoded, ty: ExprType::Str });
+                return Ok(TypedExpr::Literal { value: decoded, ty: ExprType::String });
             }
             '`' => {
                 let decoded = strip_delimiters(value, '`').to_string();
-                return Ok(TypedExpr::Literal { value: decoded, ty: ExprType::Str });
+                return Ok(TypedExpr::Literal { value: decoded, ty: ExprType::String });
             }
             '\'' => {
                 let decoded = unescape(strip_delimiters(value, '\''))?;
@@ -337,17 +300,8 @@ fn check_literal(value: &str) -> Result<TypedExpr, String> {
                 .map_err(|_| format!("unsupported literal: '{value}'"))?;
             Ok(TypedExpr::Literal { value: value.to_string(), ty: ExprType::I32 })
         }
-        Some(tag_name) => {
-            let parts: Vec<&str> = body.split(':').collect();
-            let tag_def = lookup_tag(tag_name, parts.len())
-                .ok_or_else(|| format!("no literal of shape {} field(s) tagged '{tag_name}' is defined (in '{value}')", parts.len()))?;
-            let mut fields = Vec::with_capacity(parts.len());
-            for part in &parts {
-                part.parse::<i32>()
-                    .map_err(|_| format!("invalid field '{part}' in literal '{value}'"))?;
-                fields.push(TypedExpr::Literal { value: part.to_string(), ty: ExprType::I32 });
-            }
-            Ok(TypedExpr::StructLiteral { name: tag_def.struct_name, fields })
+        Some(_) => {
+            Ok(TypedExpr::Literal { value: value.to_string(), ty: ExprType::Void })
         }
     }
 }
