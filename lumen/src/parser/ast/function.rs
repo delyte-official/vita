@@ -8,17 +8,27 @@ pub struct Function {
     pub return_type: Option<String>,
 }
 
-impl fmt::Debug for Function {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let body_str = self
-            .body
-            .iter()
-            .map(|stmt| format!("{:#?}", stmt))
-            .collect::<Vec<String>>()
-            .join("\n");
-        write!(f, "func {}(){} {{\n{}\n}}", self.name, match &self.return_type {
+impl Function {
+    pub fn fmt_with_indent(&self, f: &mut fmt::Formatter<'_>, indent_level: usize) -> fmt::Result {
+        let indent = "\t".repeat(indent_level);
+        write!(f, "{}func {}(){} {{\n", indent, self.name, match &self.return_type {
             Some(t) => format!(": {}", t),
             None => String::new(),
-        }, body_str)
+        })?;
+        let mut index = 0;
+        for stmt in &self.body {
+            if index > 0 {
+                writeln!(f)?;
+            }
+            stmt.fmt_with_indent(f, indent_level + 1)?;
+            index += 1;
+        }
+        write!(f, "\n{}}}", indent)
+    }
+}
+
+impl fmt::Debug for Function {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.fmt_with_indent(f, 0)
     }
 }

@@ -17,7 +17,7 @@ pub enum Stmt {
 }
 
 impl Stmt {
-    fn fmt_with_indent(&self, f: &mut fmt::Formatter<'_>, indent: usize) -> fmt::Result {
+    pub fn fmt_with_indent(&self, f: &mut fmt::Formatter<'_>, indent: usize) -> fmt::Result {
         let spaces = "\t".repeat(indent);
         match self {
             Stmt::Return(expr) => {
@@ -38,7 +38,7 @@ impl Stmt {
                 write!(f, "{}val {}{} = {:?};", spaces, name, type_str, expr)
             }
             Stmt::If { condition, then_branch, elif_branches, else_branch } => {
-                write!(f, "{}if {:?} {{\n", spaces, condition)?;
+                write!(f, "{}if ({:?}) {{\n", spaces, condition)?;
                 
                 for stmt in then_branch {
                     stmt.fmt_with_indent(f, indent + 1)?;
@@ -48,7 +48,7 @@ impl Stmt {
 
                 if let Some(elif_list) = elif_branches {
                     for (cond, branch) in elif_list {
-                        write!(f, " elif {:?} {{\n", cond)?;
+                        write!(f, " elif ({:?}) {{\n", cond)?;
                         for stmt in branch {
                             stmt.fmt_with_indent(f, indent + 1)?;
                             writeln!(f)?;
@@ -79,6 +79,6 @@ impl Stmt {
 
 impl fmt::Debug for Stmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.fmt_with_indent(f, 1)
+        self.fmt_with_indent(f, 0)
     }
 }
