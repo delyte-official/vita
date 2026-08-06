@@ -1,7 +1,19 @@
-func test(): string {
-    val r: int = 2;
+func test(): int {
+    val r: int = (10 / 5);
     val width = 3;
-    return "this is a complex {r} string with {r + width + 2 / 3} products";
+    return r * (width + 6);
+}
+
+primitive class meters {
+    val value: int;
+
+    constructor(<m: int>m) {
+        value = m;
+    }
+
+    func to_int(): int {
+        return value;
+    }
 }
 
 func main(): int {
@@ -9,11 +21,11 @@ func main(): int {
     val ret = test();
     if (2+4) {
         val yo = 2;
-        return 3;
+        return ret;
     } elif (5) {
         test();
         return 2;
     } else {
-        return ret;
+        return 56;
     }
 }

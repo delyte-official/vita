@@ -1,4 +1,4 @@
-use crate::{lexer::{Lexer, Token, TokenKind}, parser::*};
+use crate::{lexer::{Lexer, Token, TokenKind}, parser::{PrimitiveClassItem, program::Definition, *}};
 
 struct Parser<'a> {
     lexer: Lexer<'a>,
@@ -265,15 +265,106 @@ impl<'a> Parser<'a> {
         let body = self.parse_block()?;
         Ok(Function { name, body, return_type })
     }
+
+    pub fn parse_field(&mut self) -> Result<Field, String> {
+        let mutable = match self.advance()? {
+            Some(Token{ kind: TokenKind::Var, .. }) => true,
+            Some(Token{ kind: TokenKind::Val, .. }) => false,
+            _ => return Err(format!(
+                "expected 'var' or 'val', found {:?} (line {}, column {})",
+                self.peek_kind(),
+                self.peek().map_or(0, |t| t.line),
+                self.peek().map_or(0, |t| t.col)
+            )),
+        };
+        let name = self.parse_identifier()?;
+        self.expect(TokenKind::Colon)?;
+        let type_annotation = self.parse_identifier()?;
+        self.expect(TokenKind::Semicolon)?;
+        Ok(Field { name, ty: type_annotation, mutable })
+    }
+
+    // already consumed '<'
+    pub fn parse_type_atom(&mut self) -> Result<LiteralAtom, String> {
+        let name = self.parse_identifier()?;
+        self.expect(TokenKind::Colon)?;
+        let ty = self.parse_identifier()?;
+        self.expect(TokenKind::RightAngleBracket)?;
+        Ok(LiteralAtom::TypeAtom { name, ty })
+    }
+
+    // stops at the first parenthesis, bc its supposed to be only in a primitive constructor
+    pub fn parse_literal_representation(&mut self) -> Result<LiteralRepresentation, String> {
+        let mut literal_repr = Vec::new();
+        while self.peek_kind() != Some(TokenKind::RParen) {
+            let literal_atom = match self.advance()? {
+                Some(Token { kind: TokenKind::LeftAngleBracket, .. }) => self.parse_type_atom()?,
+                Some(Token { kind: TokenKind::Literal(value), .. }) => LiteralAtom::Text(value.clone()),
+                Some(tok) => return Err(format!(
+                    "expected a literal atom, found {:?} (line {}, column {})",
+                    tok.kind,
+                    tok.line,
+                    tok.col
+                )),
+                None => return Err("expected a literal atom, found end of file".to_string()),
+            };
+            literal_repr.push(literal_atom);
+        }
+        Ok(LiteralRepresentation { parts: literal_repr })
+    }
+
+    pub fn parse_primitive_constructor(&mut self) -> Result<PrimitiveConstructor, String> {
+        self.expect(TokenKind::Constructor)?;
+        self.expect(TokenKind::LParen)?;
+        let literal_repr = self.parse_literal_representation()?;
+        self.expect(TokenKind::RParen)?;
+        let body = self.parse_block()?;
+        Ok(PrimitiveConstructor { literal_representation: literal_repr, body })
+    }
+
+    pub fn parse_primitive_class(&mut self) -> Result<PrimitiveClass, String> {
+        self.expect(TokenKind::Primitive)?;
+        self.expect(TokenKind::Class)?;
+        let name = self.parse_identifier()?;
+        self.expect(TokenKind::LBrace)?;
+        let mut class_items = vec![];
+        while self.peek_kind() != Some(TokenKind::RBrace) {
+            let item = match self.peek_kind() {
+                Some(TokenKind::Func) => PrimitiveClassItem::Method(self.parse_function()?),
+                Some(TokenKind::Val) => PrimitiveClassItem::Field(self.parse_field()?),
+                Some(TokenKind::Var) => return Err("fields in primitive classes cannot be mutable".to_string()),
+                Some(TokenKind::Constructor) => PrimitiveClassItem::Constructor(self.parse_primitive_constructor()?),
+                _ => return Err(format!(
+                    "expected a method, field, or constructor, found {:?} (line {}, column {})",
+                    self.peek_kind(),
+                    self.peek().map_or(0, |t| t.line),
+                    self.peek().map_or(0, |t| t.col)
+                ))
+            };
+            class_items.push(item);
+        }
+        self.expect(TokenKind::RBrace)?;
+        Ok(PrimitiveClass { name, items: class_items })
+    }
 }
 
 pub fn parse(source: &str) -> Result<Program, String> {
     let mut parser = Parser::new(source)?;
 
-    let mut functions = vec![];
+    let mut definitions = vec![];
     while let Some(_) = parser.peek() {
-        functions.push(parser.parse_function()?);
+        let definition = match parser.peek_kind() {
+            Some(TokenKind::Func) => Definition::Function(parser.parse_function()?),
+            Some(TokenKind::Primitive) => Definition::PrimitiveClass(parser.parse_primitive_class()?),
+            _ => return Err(format!(
+                "expected a definition, found {:?} (line {}, column {})",
+                parser.peek_kind(),
+                parser.peek().map_or(0, |t| t.line),
+                parser.peek().map_or(0, |t| t.col)
+            )),
+        };
+        definitions.push(definition);
     }
 
-    Ok(Program { functions })
+    Ok(Program { definitions })
 }
