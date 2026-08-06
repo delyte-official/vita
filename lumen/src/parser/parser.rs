@@ -202,6 +202,11 @@ impl<'a> Parser<'a> {
                 }
             }
             Some(Token { kind: TokenKind::LiteralStartTemplate(text), .. }) => self.parse_format_literal(text),
+            Some(Token { kind: TokenKind::LParen, .. }) => {
+                let expr = self.parse_expr(0)?;
+                self.expect(TokenKind::RParen)?;
+                Ok(Expr::Parenthesized(Box::new(expr)))
+            }
             Some(tok) => Err(format!(
                 "expected an expression, found {:?} (line {}, column {})",
                 tok.kind, tok.line, tok.col
